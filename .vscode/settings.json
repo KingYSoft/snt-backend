@@ -1,0 +1,13 @@
+{
+  "editor.formatOnSave": true, // 保存时格式化
+  "editor.defaultFormatter": "ms-dotnettools.csharp",
+  "terminal.integrated.scrollback": 100,
+  "terminal.integrated.shellIntegration.history": 0,
+  "editor.fontSize": 17,
+  "[sql]": {
+    "editor.defaultFormatter": "ms-mssql.mssql"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  }
+}

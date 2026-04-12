@@ -1,0 +1,29 @@
+{
+  "ConnectionStrings": {
+    "Default": "Server=localhost;Database=DemoDb;User ID=sa;Password=passwrod;TrustServerCertificate=True;Pooling=True;Max Pool Size=1024;"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "System": "Warning",
+      "Microsoft": "Warning"
+    }
+  },
+  "App": {
+    "ServerRootAddress": "http://localhost:21021/",
+    "ClientRootAddress": "http://localhost:4200/",
+    "CorsOrigins": "http://localhost:4200,http://localhost:8080,http://localhost:3000"
+  },
+  "Authentication": {
+    "JwtBearer": {
+      "IsEnabled": "true",
+      "SecurityKey": "SntBackend_CAA1AAEE0D114E9CE9CCGVSSAAAA1AAEE0D11AEE0DAEE0DE9CCGVFF80S",
+      "Issuer": "SntBackend",
+      "Audience": "SntBackend"
+    }
+  },
+  "FacadeConfiguration": {
+    "AppName": "SntBackend_Dev",
+    "WebIndexPath": ""
+  }
+}

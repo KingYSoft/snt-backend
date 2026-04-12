@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssetTargetFallback>$(AssetTargetFallback);portable-net45+win8+wp8+wpa81;</AssetTargetFallback>
+    <AssemblyName>SntBackend.DomainService</AssemblyName>
+    <PackageId>SntBackend.DomainService</PackageId>
+    <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute> 
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Localization\SourceFiles\SntBackend-zh-Hans.xml" />
+    <None Remove="Localization\SourceFiles\SntBackend.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\SourceFiles\SntBackend-zh-Hans.xml">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Localization\SourceFiles\SntBackend.xml">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Facade.AutoMapper" Version="6.0.4" />
+    <PackageReference Include="Facade.Quartz" Version="6.0.4" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\SntBackend.SqlServer\SntBackend.SqlServer.csproj" />
+	</ItemGroup>
+	
+</Project>

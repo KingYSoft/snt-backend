@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssetTargetFallback>$(AssetTargetFallback);portable-net45+win8+wp8+wpa81;</AssetTargetFallback>
+    <AssemblyName>SntBackend.DomainService.Share</AssemblyName>
+    <PackageId>SntBackend.DomainService.Share</PackageId>
+    <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+  </PropertyGroup>
+
+  <ItemGroup> 
+	<PackageReference Include="Facade.Dapper.SqlServer" Version="6.0.4" /> 
+    <PackageReference Include="Facade.NLogger" Version="6.0.4" />
+  </ItemGroup>
+ 
+
+</Project>

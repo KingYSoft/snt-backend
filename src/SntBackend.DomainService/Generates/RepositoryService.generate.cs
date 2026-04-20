@@ -44,7 +44,19 @@ namespace SntBackend.DomainService.Repositories
         public IJobConsolRepository JobConsolRepository => IocManager.Instance.Resolve<IJobConsolRepository>();
         /// <summary>
         /// </summary>
+        public IJobContainerRepository JobContainerRepository => IocManager.Instance.Resolve<IJobContainerRepository>();
+        /// <summary>
+        /// </summary>
+        public IJobDocAddressRepository JobDocAddressRepository => IocManager.Instance.Resolve<IJobDocAddressRepository>();
+        /// <summary>
+        /// </summary>
+        public IJobDocumentDataRepository JobDocumentDataRepository => IocManager.Instance.Resolve<IJobDocumentDataRepository>();
+        /// <summary>
+        /// </summary>
         public IJobHeaderRepository JobHeaderRepository => IocManager.Instance.Resolve<IJobHeaderRepository>();
+        /// <summary>
+        /// </summary>
+        public IJobPackLinesRepository JobPackLinesRepository => IocManager.Instance.Resolve<IJobPackLinesRepository>();
         /// <summary>
         /// </summary>
         public IJobShipmentRepository JobShipmentRepository => IocManager.Instance.Resolve<IJobShipmentRepository>();

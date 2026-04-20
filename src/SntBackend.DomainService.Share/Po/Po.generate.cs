@@ -2162,6 +2162,775 @@ namespace SntBackend.DomainService.Share.Po
     }
 
     /// <summary>
+    /// JobContainer
+    /// </summary>
+    public partial class JobContainer : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_isvalid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_iscfsregistered { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_isemptycontainer { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_issealok { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_isshipperowned { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_isdamaged { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containermode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containerjobid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containerstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containerquality { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containernum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_sealnum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_additionalsealnum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_additional2sealnum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_description { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_harmonisedcode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_marksandnumbers { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_f3_nkpacktype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containerimportdorelease { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_containercount { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containerstoragelocation { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_stowageposition { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_fclstoragemoduleonlymaster { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_purpose { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_unpackgang { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_unpackshed { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_deliverymode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_trainwagonnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_oh_cfsclient { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containerrating { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_oh_shippingline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_exportdepotcustomsreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_packdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_releasenum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_temprecorderserialno { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_departureslotdatetime { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_departureslotreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_departuredockreceipt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_departureestimatedpickup { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_oa_departurecontaineryardaddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_emptyrequired { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_containeryardemptypickupgateout { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_departuredeliverybyrail { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_departurecartageadvised { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_departurecartageref { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_departurecartagecomplete { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_arrivalslotdatetime { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_arrivalslotreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_arrivalestimateddelivery { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_arrivaldeliveryrequiredby { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_oa_arrivalcontaineryardaddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_arrivalpickupbyrail { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_arrivalcartageadvised { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_arrivalcartageref { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_arrivalcartagecomplete { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_fclwharfgatein { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_fclonboardvessel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_overridefclavailablestorage { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_fclunloadfromvessel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_fclavailable { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_fclwharfgateout { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_arrivalctostoragestartdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_fclheldintransitstaging { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_overridelclavailablestorage { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_lclunpack { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_lclavailable { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_lclstoragecommences { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_emptyreadyforreturn { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_emptyreturnedby { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_containeryardemptyreturngatein { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rh_nkcontainercommoditycode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_airventflow { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_airventflowrateunit { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_humiditypercent { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_iscontrolledatmosphere { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_refriggeneratorid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_setpointtemp { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_setpointtempunit { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_totalheight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_totallength { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_totalwidth { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_totalunitofmeasure { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_overhangback { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_overhangright { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_dunnageweight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_grossweight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_grossweightuq { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_tareweight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_grossvolume { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_grossvolumeuq { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_volumecapacity { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_volumecapacityuq { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_weightcapacity { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_weightcapacityuq { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_containernotes { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_fclstoragearrivedunderbond { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_fclstorageunderbondcleared { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_deliverysequence { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_jx { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_jk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_js_fclbookingonlylink { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_vehiclemake { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_vehiclemodel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_vehicleyear { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_vehiclecolor { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_vehiclenumberofdoors { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_vehicletransmission { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_goodsvalue { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rx_nkgoodscurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_additional2sealparty { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_additionalsealparty { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_costspotrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_costspotratemode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_gatewaysellspotrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_gatewaysellspotratemode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jc_grossweightverificationdatetime { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_grossweightverificationstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_grossweightverificationtype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rx_nkcostspotratecurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rx_nkgatewaysellspotratecurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rx_nksellspotratecurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_sealparty { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_sellspotrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_sellspotratemode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_emptyreturnreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_importdepotcustomsreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_jsb_supplierbooking { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rca_allocationline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_isgrossweightoverridden { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jc_isnonoperativereefer { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jc_pivotbreak { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_clh_loadlistplan { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_rh_nkratingcommoditycode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_systemcreatebranch { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jc_systemcreatedepartment { get; set; }
+    }
+
+    /// <summary>
+    /// JobDocAddress
+    /// </summary>
+    public partial class JobDocAddress : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int e2_isvalid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_addresstype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int e2_isresidential { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int e2_addresssequence { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_oa_address { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_contact { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int e2_addressoverride { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_address1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_address2 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_city { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_postcode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_state { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_rn_nkcountrycode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_phone { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_mobile { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_fax { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_govregnum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_govregnumtype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_email { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_parentid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_parenttablecode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_validationstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_addressmap { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int e2_suppressaddressvalidationerror { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? e2_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? e2_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_geolocation { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_additionaladdressinformation { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_companyname { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string e2_screeningstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int e2_autoversion { get; set; }
+    }
+
+    /// <summary>
+    /// JobDocumentData
+    /// </summary>
+    public partial class JobDocumentData : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_parenttablecode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_parentid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_overriddendata { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_name { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_template { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime jdd_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime jdd_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jdd_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jdd_autoversion { get; set; }
+    }
+
+    /// <summary>
     /// JobHeader
     /// </summary>
     public partial class JobHeader : Entity<string>
@@ -2366,6 +3135,301 @@ namespace SntBackend.DomainService.Share.Po
         /// 
         /// </summary>
         public string jh_transportmode { get; set; }
+    }
+
+    /// <summary>
+    /// JobPackLines
+    /// </summary>
+    public partial class JobPackLines : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_isvalid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_freightmode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_itemno { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_enditemno { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_packagecount { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_f3_nkpacktype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_containerpackingorder { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_lineprice { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_outturn { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_outturnedlength { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_outturnedheight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_outturnedwidth { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_outturnedweight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_outturnedvolume { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_outturncomment { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_pillaged { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_damaged { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_actualweight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_actualweightuq { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_length { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_height { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_width { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_unitofdimension { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_actualvolume { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_actualvolumeuq { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_loadingmeters { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_description { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_detaileddescription { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_harmonisedcode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_rn_nkorigin { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_rh_nkcommoditycode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_marksandnumbers { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_js { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_customattrib1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_customattrib2 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_customattrib3 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_customattrib4 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_customdecimal1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_customdecimal2 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jl_customdate1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jl_customdate2 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_customflag1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_customflag2 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_exportrefnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_importrefnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_vehiclecolor { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_vehiclemake { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_vehiclemodel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_vehiclenumberofdoors { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_vehicletransmission { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_vehicleyear { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_refnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_departuretransitwarehouseexcluded { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_lastknowntransitwarehousestatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_origintransitwarehousestatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_packlineid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_requiredtemperaturemaximum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jl_requiredtemperatureminimum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_requiredtemperatureunit { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_requirestemperaturecontrol { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jl_lastknowntransitwarehousestatusdatetime { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_oa_lastknowntransitwarehouseaddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jl_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jl_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_rc_containertype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_jl_outerpackline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jl_ishighrisk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jl_jsl_bookingline { get; set; }
     }
 
     /// <summary>

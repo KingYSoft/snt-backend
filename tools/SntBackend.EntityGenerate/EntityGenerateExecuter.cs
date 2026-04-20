@@ -52,7 +52,8 @@ namespace SntBackend.EntityGenerate
                 var db_tables = new string[] { "JobShipment", "JobHeader", "JobConsol",
                     "JobConShipLink", "OrgHeader", "OrgAddress","AccTransactionHeader",
                     "AccTransactionLines","AccTransactionMatchLink","AccChargeCode",
-                    "GlbCompany","GlbBranch","GlbStaff" };
+                    "GlbCompany","GlbBranch","GlbStaff", "JobDocAddress", "JobContainer",
+                    "JobPackLines", "JobDocumentData" };
                 var tableSql = @"
 select t.TABLE_NAME, g.value as TABLE_COMMENT
   from information_schema.TABLES t
@@ -679,7 +680,7 @@ order by c.ORDINAL_POSITION
             var dt = dbDataType.ToLower();
             if (dt == "varchar" || dt == "nvarchar" || dt == "longtext" || dt == "ntext" || dt == "text"
                 || dt == "uniqueidentifier" || dt == "char" || dt == "nchar"
-                || dt == "geography")
+                || dt == "geography" || dt == "xml")
             {
                 return "string";
             }

@@ -43,7 +43,19 @@ namespace SntBackend.DomainService.Repositories
         IJobConsolRepository JobConsolRepository { get; }
         /// <summary>
         /// </summary>
+        IJobContainerRepository JobContainerRepository { get; }
+        /// <summary>
+        /// </summary>
+        IJobDocAddressRepository JobDocAddressRepository { get; }
+        /// <summary>
+        /// </summary>
+        IJobDocumentDataRepository JobDocumentDataRepository { get; }
+        /// <summary>
+        /// </summary>
         IJobHeaderRepository JobHeaderRepository { get; }
+        /// <summary>
+        /// </summary>
+        IJobPackLinesRepository JobPackLinesRepository { get; }
         /// <summary>
         /// </summary>
         IJobShipmentRepository JobShipmentRepository { get; }

@@ -120,6 +120,42 @@ namespace SntBackend.Application.Po.Dto
     }
     /// <summary>
     /// AutoMapper Profile 实体映射文件
+    /// JobContainerMapProfile
+    /// </summary>
+    public partial class JobContainerMapProfile : Profile
+    {
+        public JobContainerMapProfile()
+        {
+            CreateMap<JobContainerCreateUpdateDtoInput, JobContainer>();
+            CreateMap<JobContainer, JobContainerDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
+    /// JobDocAddressMapProfile
+    /// </summary>
+    public partial class JobDocAddressMapProfile : Profile
+    {
+        public JobDocAddressMapProfile()
+        {
+            CreateMap<JobDocAddressCreateUpdateDtoInput, JobDocAddress>();
+            CreateMap<JobDocAddress, JobDocAddressDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
+    /// JobDocumentDataMapProfile
+    /// </summary>
+    public partial class JobDocumentDataMapProfile : Profile
+    {
+        public JobDocumentDataMapProfile()
+        {
+            CreateMap<JobDocumentDataCreateUpdateDtoInput, JobDocumentData>();
+            CreateMap<JobDocumentData, JobDocumentDataDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
     /// JobHeaderMapProfile
     /// </summary>
     public partial class JobHeaderMapProfile : Profile
@@ -128,6 +164,18 @@ namespace SntBackend.Application.Po.Dto
         {
             CreateMap<JobHeaderCreateUpdateDtoInput, JobHeader>();
             CreateMap<JobHeader, JobHeaderDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
+    /// JobPackLinesMapProfile
+    /// </summary>
+    public partial class JobPackLinesMapProfile : Profile
+    {
+        public JobPackLinesMapProfile()
+        {
+            CreateMap<JobPackLinesCreateUpdateDtoInput, JobPackLines>();
+            CreateMap<JobPackLines, JobPackLinesDtoOutput>();
         }
     }
     /// <summary>

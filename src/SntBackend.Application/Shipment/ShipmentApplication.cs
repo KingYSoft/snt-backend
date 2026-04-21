@@ -118,7 +118,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             return output;
         }
 
-        public async Task<JobShipmentDtoOutput> Detail(string id)
+        public async Task<ShipmentDetailOutput> Detail(string id)
         {
             var dp = new DynamicParameters();
             dp.Add("id", id);
@@ -126,9 +126,70 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             var sql = @"
 SELECT t.*
 FROM JobShipment t
-WHERE t.Id = @id
+WHERE t.Id = @id;
+
+SELECT t.*
+FROM JobDocAddress t
+WHERE t.e2_parentid = @id
+    AND t.e2_parenttablecode = 'SHP';
+
+SELECT t.*
+FROM JobContainer t
+WHERE t.jc_js_fclbookingonlylink = @id;
+
+SELECT t.*
+FROM JobPackLines t
+WHERE t.jl_js = @id;
+
+SELECT t.*
+FROM JobDocumentData t
+WHERE t.jdd_parentid = @id
+    AND t.jdd_parenttablecode = 'SHP';
 ";
-            return await _appSqlServerRepository.QueryFirstOrDefaultAsync<JobShipmentDtoOutput>(sql, dp);
+
+            using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
+
+            var detail = await multi.ReadFirstOrDefaultAsync<ShipmentDetailOutput>();
+            if (detail == null) return null;
+
+            var addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
+            var containers = (await multi.ReadAsync<ShipmentDetailContainerDto>()).ToList();
+            var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
+            var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
+
+            // 地址映射
+            detail.shipper = addrs.FirstOrDefault(a => a.e2_addresstype == "SHIPPER");
+            detail.consignee = addrs.FirstOrDefault(a => a.e2_addresstype == "CONSIGNEE");
+            detail.notify_party = addrs.FirstOrDefault(a => a.e2_addresstype == "NOTIFY_PARTY");
+            detail.pickup = addrs.FirstOrDefault(a => a.e2_addresstype == "PICKUP");
+            detail.delivery = addrs.FirstOrDefault(a => a.e2_addresstype == "DELIVERY");
+
+            // 根据运输方式区分 FCL / 散货
+            if (detail.js_transportmode == "SEA" && detail.js_packingmode == "FCL")
+            {
+                detail.containers_list = containers;
+                foreach (var ctr in detail.containers_list)
+                {
+                    var pl = packLines.FirstOrDefault(p => p.jl_js == detail.js_pk);
+                    if (pl != null)
+                    {
+                        ctr.jl_rh_nkcommoditycode = pl.jl_rh_nkcommoditycode;
+                        ctr.jl_actualweight = pl.jl_actualweight;
+                        ctr.jl_actualvolume = pl.jl_actualvolume;
+                        ctr.jl_packagecount = pl.jl_packagecount;
+                        ctr.jl_f3_nkpacktype = pl.jl_f3_nkpacktype;
+                        ctr.jl_description = pl.jl_description;
+                    }
+                }
+            }
+            else
+            {
+                detail.loose_list = packLines;
+            }
+
+            detail.doc_data = docData;
+
+            return detail;
         }
     }
 }

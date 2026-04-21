@@ -1,6 +1,5 @@
 using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
-using SntBackend.Application.Po.Dto;
 using SntBackend.Application.Shipment;
 using SntBackend.Application.Shipment.Dto;
 using SntBackend.Web.Core.Controllers;
@@ -37,13 +36,13 @@ public class ShipmentController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("detail")]
-    public async Task<JsonResponse<JobShipmentDtoOutput>> Detail([FromQuery] string id)
+    public async Task<JsonResponse<ShipmentDetailOutput>> Detail([FromQuery] string id)
     {
         var result = await _shipmentApplication.Detail(id);
         if (result == null)
         {
-            return new JsonResponse<JobShipmentDtoOutput>(false, "Shipment not found.");
+            return new JsonResponse<ShipmentDetailOutput>(false, "Shipment not found.");
         }
-        return new JsonResponse<JobShipmentDtoOutput> { Data = result };
+        return new JsonResponse<ShipmentDetailOutput> { Data = result };
     }
 }

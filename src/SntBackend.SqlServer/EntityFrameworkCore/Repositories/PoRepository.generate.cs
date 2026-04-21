@@ -111,11 +111,55 @@ namespace SntBackend.SqlServer.EntityFrameworkCore.Repositories
 
     /// <summary>
     /// 
+    /// JobContainerRepository
+    /// </summary>
+    public partial class JobContainerRepository : SqlServerEfCoreRepositoryBase<JobContainer, string>, IJobContainerRepository
+    {
+        public JobContainerRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// JobDocAddressRepository
+    /// </summary>
+    public partial class JobDocAddressRepository : SqlServerEfCoreRepositoryBase<JobDocAddress, string>, IJobDocAddressRepository
+    {
+        public JobDocAddressRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// JobDocumentDataRepository
+    /// </summary>
+    public partial class JobDocumentDataRepository : SqlServerEfCoreRepositoryBase<JobDocumentData, string>, IJobDocumentDataRepository
+    {
+        public JobDocumentDataRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
     /// JobHeaderRepository
     /// </summary>
     public partial class JobHeaderRepository : SqlServerEfCoreRepositoryBase<JobHeader, string>, IJobHeaderRepository
     {
         public JobHeaderRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
+    /// JobPackLinesRepository
+    /// </summary>
+    public partial class JobPackLinesRepository : SqlServerEfCoreRepositoryBase<JobPackLines, string>, IJobPackLinesRepository
+    {
+        public JobPackLinesRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
         {
         }
     }

@@ -83,9 +83,41 @@ namespace SntBackend.DomainService.Share.Repositories
 
     /// <summary>
     /// 
+    /// IJobContainerRepository
+    /// </summary>
+    public partial interface IJobContainerRepository : IRepository<JobContainer, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
+    /// IJobDocAddressRepository
+    /// </summary>
+    public partial interface IJobDocAddressRepository : IRepository<JobDocAddress, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
+    /// IJobDocumentDataRepository
+    /// </summary>
+    public partial interface IJobDocumentDataRepository : IRepository<JobDocumentData, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
     /// IJobHeaderRepository
     /// </summary>
     public partial interface IJobHeaderRepository : IRepository<JobHeader, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
+    /// IJobPackLinesRepository
+    /// </summary>
+    public partial interface IJobPackLinesRepository : IRepository<JobPackLines, string>, Abp.Dependency.ITransientDependency
     {
     }
 

@@ -98,7 +98,7 @@ WHERE 1 = 1
     AND t.ah_ledger = @ledger
     AND t.ah_iscancelled = 0
     {whereIf}
-ORDER BY t.ah_invoicedate desc, t.Id desc
+ORDER BY t.ah_invoicedate desc, t.ah_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);
@@ -127,7 +127,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             var sql = @"
 SELECT t.*
 FROM AccTransactionHeader t
-WHERE t.Id = @id
+WHERE t.ah_pk = @id
 ";
             return await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
         }

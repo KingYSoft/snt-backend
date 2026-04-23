@@ -35,5 +35,9 @@
   <ItemGroup>
     <ProjectReference Include="..\SntBackend.Web.Core\SntBackend.Web.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="appsettings.Development.json" />
+  </ItemGroup>
  
 </Project>

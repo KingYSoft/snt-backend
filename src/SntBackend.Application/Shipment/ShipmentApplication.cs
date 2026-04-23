@@ -97,7 +97,7 @@ WHERE 1 = 1
     AND t.js_iscancelled = 0
     AND t.js_isforwardregistered = 1
     {whereIf}
-ORDER BY t.Id desc
+ORDER BY t.js_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);
@@ -126,7 +126,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             var sql = @"
 SELECT t.*
 FROM JobShipment t
-WHERE t.Id = @id;
+WHERE t.js_pk = @id;
 
 SELECT t.*
 FROM JobDocAddress t

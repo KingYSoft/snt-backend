@@ -140,7 +140,8 @@ WHERE t.ah_pk = @id
 
             var totalSql = @$"
 SELECT COUNT(*)
-FROM AccTransactionHeader t
+FROM AccTransactionMatchLink m
+INNER JOIN AccTransactionHeader t ON t.ah_pk = m.ap_ah
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_fullypaiddate IS NOT NULL
     AND t.ah_iscancelled = 0
@@ -148,14 +149,19 @@ WHERE t.ah_fullypaiddate IS NOT NULL
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*, o.oh_fullname AS CompanyName
-FROM AccTransactionHeader t
+SELECT m.ap_pk, m.ap_amount, m.ap_matchdate, m.ap_systemcreatetimeutc,
+       m.ap_reason, m.ap_ah,
+       t.ah_transactionnum, t.ah_rx_nktransactioncurrency,
+       t.ah_matchstatus, t.ah_transactiontype,
+       o.oh_fullname AS CompanyName
+FROM AccTransactionMatchLink m
+INNER JOIN AccTransactionHeader t ON t.ah_pk = m.ap_ah
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_fullypaiddate IS NOT NULL
     AND t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY')
     {whereIf}
-ORDER BY t.ah_fullypaiddate DESC, t.AH_PK DESC
+ORDER BY m.ap_matchdate DESC, m.ap_pk DESC
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);

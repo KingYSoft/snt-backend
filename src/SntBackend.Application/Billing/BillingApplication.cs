@@ -131,5 +131,83 @@ WHERE t.ah_pk = @id
 ";
             return await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
         }
+
+        public async Task<WriteOffTblOutput> WriteOffTbl(WriteOffTblInput input)
+        {
+            var output = new WriteOffTblOutput();
+            var dp = new DynamicParameters();
+            var whereIf = TblBuildWhere(input.filters, dp);
+
+            var totalSql = @$"
+SELECT COUNT(*)
+FROM AccTransactionMatchLink m
+INNER JOIN AccTransactionHeader t ON t.ah_pk = m.ap_ah
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+WHERE t.ah_fullypaiddate IS NOT NULL
+    AND t.ah_iscancelled = 0
+    AND t.ah_transactiontype IN ('REC', 'PAY')
+    {whereIf}
+";
+            var pageSql = @$"
+SELECT m.ap_pk, m.ap_amount, m.ap_matchdate, m.ap_systemcreatetimeutc,
+       m.ap_reason, m.ap_ah,
+       t.ah_transactionnum, t.ah_rx_nktransactioncurrency,
+       t.ah_matchstatus, t.ah_transactiontype,
+       o.oh_fullname AS CompanyName
+FROM AccTransactionMatchLink m
+INNER JOIN AccTransactionHeader t ON t.ah_pk = m.ap_ah
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+WHERE t.ah_fullypaiddate IS NOT NULL
+    AND t.ah_iscancelled = 0
+    AND t.ah_transactiontype IN ('REC', 'PAY')
+    {whereIf}
+ORDER BY m.ap_matchdate DESC, m.ap_pk DESC
+OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+";
+            dp.Add("skipCount", input.SkipCount);
+            dp.Add("takeCount", input.MaxResultCount);
+
+            using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
+{totalSql};
+{pageSql}
+", dp))
+            {
+                var total = await multi.ReadFirstAsync<int>();
+                var list = (await multi.ReadAsync<WriteOffTblItem>()).ToList();
+
+                output.TotalCount = total;
+                output.Items = list;
+            }
+
+            return output;
+        }
+
+        public async Task<WriteOffDetailOutput> WriteOffDetail(string id)
+        {
+            var dp = new DynamicParameters();
+            dp.Add("id", id);
+
+            var headerSql = @"
+SELECT t.*, o.oh_fullname AS CompanyName
+FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+WHERE t.ah_pk = @id
+";
+            var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<WriteOffDetailOutput>(headerSql, dp);
+            if (header == null) return null;
+
+            var matchSql = @"
+SELECT m.*
+FROM AccTransactionMatchLink m
+WHERE m.ap_ah = @ahPk
+ORDER BY m.ap_matchdate DESC
+";
+            var mdp = new DynamicParameters();
+            mdp.Add("ahPk", header.ah_pk);
+            var matchLinks = (await _appSqlServerRepository.QueryAsync<AccTransactionMatchLinkDtoOutput>(matchSql, mdp)).ToList();
+            header.MatchLinks = matchLinks;
+
+            return header;
+        }
     }
 }

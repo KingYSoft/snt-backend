@@ -95,7 +95,7 @@ FROM JobConsol t
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
-ORDER BY t.Id desc
+ORDER BY t.jk_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);
@@ -124,7 +124,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             var sql = @"
 SELECT t.*
 FROM JobConsol t
-WHERE t.Id = @id
+WHERE t.jk_pk = @id
 ";
             return await _appSqlServerRepository.QueryFirstOrDefaultAsync<JobConsolDtoOutput>(sql, dp);
         }

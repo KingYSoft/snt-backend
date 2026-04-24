@@ -98,7 +98,7 @@ WHERE 1 = 1
     AND t.ah_ledger = @ledger
     AND t.ah_iscancelled = 0
     {whereIf}
-ORDER BY t.ah_invoicedate desc, t.Id desc
+ORDER BY t.ah_invoicedate desc, t.ah_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);

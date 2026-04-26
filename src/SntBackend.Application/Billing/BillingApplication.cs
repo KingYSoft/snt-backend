@@ -182,32 +182,51 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             return output;
         }
 
-        public async Task<WriteOffDetailOutput> WriteOffDetail(string id)
+        public async Task<WriteOffDetailOutput> WriteOffDetail(WriteOffDetailInput input)
         {
             var dp = new DynamicParameters();
-            dp.Add("id", id);
+            dp.Add("id", input.apPk);
 
-            var headerSql = @"
-SELECT t.*, o.oh_fullname AS CompanyName
-FROM AccTransactionHeader t
-LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
-WHERE t.ah_pk = @id
-";
-            var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<WriteOffDetailOutput>(headerSql, dp);
-            if (header == null) return null;
-
-            var matchSql = @"
+            // 1. 通过 ap_pk 查询 MatchLink 本身
+            var matchLinkSql = @"
 SELECT m.*
 FROM AccTransactionMatchLink m
-WHERE m.ap_ah = @ahPk
-ORDER BY m.ap_matchdate DESC
+WHERE m.ap_pk = @id
 ";
-            var mdp = new DynamicParameters();
-            mdp.Add("ahPk", header.ah_pk);
-            var matchLinks = (await _appSqlServerRepository.QueryAsync<AccTransactionMatchLinkDtoOutput>(matchSql, mdp)).ToList();
-            header.MatchLinks = matchLinks;
+            var matchLink = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionMatchLinkDtoOutput>(matchLinkSql, dp);
+            if (matchLink == null) return null;
 
-            return header;
+            // 2. 通过 MatchLink 的 ap_ah 找到关联的 Header
+            var headerSql = @"
+SELECT t.ah_pk, t.ah_transactionnum, o.oh_fullname AS CompanyName,
+       t.ah_invoiceamount, t.ah_rx_nktransactioncurrency, t.ah_fullypaiddate,
+       t.ah_matchstatus, t.ah_systemcreatetimeutc, t.ah_desc,
+       t.ah_transactiontype, t.ah_ledger, t.ah_outstandingamount, t.ah_ostotal
+FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+WHERE t.ah_pk = @ahPk
+";
+            var hdp = new DynamicParameters();
+            hdp.Add("ahPk", matchLink.ap_ah);
+            var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<WriteOffDetailHeader>(headerSql, hdp);
+
+            // 3. 通过 Header 的 ah_pk 查询所有 AccTransactionLines
+            var linesSql = @"
+SELECT l.*
+FROM AccTransactionLines l
+WHERE l.al_ah = @ahPk
+ORDER BY l.al_sequence
+";
+            var ldp = new DynamicParameters();
+            ldp.Add("ahPk", matchLink.ap_ah);
+            var transactionLines = (await _appSqlServerRepository.QueryAsync<AccTransactionLinesDtoOutput>(linesSql, ldp)).ToList();
+
+            return new WriteOffDetailOutput
+            {
+                MatchLink = matchLink,
+                Header = header,
+                TransactionLines = transactionLines
+            };
         }
     }
 }

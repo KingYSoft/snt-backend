@@ -4,6 +4,7 @@ using SntBackend.Application.Shipment;
 using SntBackend.Application.Shipment.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Threading.Tasks;
+using Facade.AspNetCore.Mvc.Authorization;
 
 namespace SntBackend.Web.Host.Controllers;
 
@@ -25,6 +26,7 @@ public class ShipmentController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("tbl")]
+    [NoToken]
     public async Task<JsonResponse<ShipmentTblOutput>> Tbl([FromBody] ShipmentTblInput input)
     {
         var result = await _shipmentApplication.Tbl(input);

@@ -10,6 +10,6 @@ namespace SntBackend.Application.Billing
         Task<BillingTblOutput> ArTbl(BillingTblInput input);
         Task<AccTransactionHeaderDtoOutput> Detail(string id);
         Task<WriteOffTblOutput> WriteOffTbl(WriteOffTblInput input);
-        Task<WriteOffDetailOutput> WriteOffDetail(string id);
+        Task<WriteOffDetailOutput> WriteOffDetail(WriteOffDetailInput input);
     }
 }

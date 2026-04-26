@@ -36,9 +36,9 @@ public class ReconciliationController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("writeoff/detail")]
-    public async Task<JsonResponse<WriteOffDetailOutput>> WriteOffDetail([FromQuery] string ahPk)
+    public async Task<JsonResponse<WriteOffDetailOutput>> WriteOffDetail([FromQuery] WriteOffDetailInput input)
     {
-        var result = await _billingApplication.WriteOffDetail(ahPk);
+        var result = await _billingApplication.WriteOffDetail(input);
         if (result == null)
         {
             return new JsonResponse<WriteOffDetailOutput>(false, "Write-off record not found.");

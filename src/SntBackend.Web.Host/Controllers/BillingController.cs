@@ -5,6 +5,7 @@ using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Threading.Tasks;
+using Facade.AspNetCore.Mvc.Authorization;
 
 namespace SntBackend.Web.Host.Controllers;
 
@@ -26,6 +27,7 @@ public class BillingController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("ap/tbl")]
+    [NoToken]
     public async Task<JsonResponse<BillingTblOutput>> ApTbl([FromBody] BillingTblInput input)
     {
         var result = await _billingApplication.ApTbl(input);
@@ -37,6 +39,7 @@ public class BillingController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("ar/tbl")]
+    [NoToken]
     public async Task<JsonResponse<BillingTblOutput>> ArTbl([FromBody] BillingTblInput input)
     {
         var result = await _billingApplication.ArTbl(input);
@@ -48,6 +51,7 @@ public class BillingController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("detail")]
+    [NoToken]
     public async Task<JsonResponse<AccTransactionHeaderDtoOutput>> Detail([FromQuery] string id)
     {
         var result = await _billingApplication.Detail(id);

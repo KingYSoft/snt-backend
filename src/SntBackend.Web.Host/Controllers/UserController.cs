@@ -32,7 +32,7 @@ namespace SntBackend.Web.Host.Controllers
         public async Task<JsonResponse<UserLoginOutput>> Login([FromBody] UserLoginInput input)
         {
             await Task.CompletedTask;
-            if (input.email == "admin" && input.password == "123456")
+            if (input.email == "admin" && input.password == "SNT@2026#004")
             {
                 var identity = CreateClaimsIdentity($"1", input.email, string.Empty);
                 var accessToken = GetEncrpyedAccessToken(CreateAccessToken(CreateJwtClaims(identity)));

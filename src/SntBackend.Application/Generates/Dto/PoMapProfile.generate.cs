@@ -120,6 +120,18 @@ namespace SntBackend.Application.Po.Dto
     }
     /// <summary>
     /// AutoMapper Profile 实体映射文件
+    /// JobConsolTransportMapProfile
+    /// </summary>
+    public partial class JobConsolTransportMapProfile : Profile
+    {
+        public JobConsolTransportMapProfile()
+        {
+            CreateMap<JobConsolTransportCreateUpdateDtoInput, JobConsolTransport>();
+            CreateMap<JobConsolTransport, JobConsolTransportDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
     /// JobContainerMapProfile
     /// </summary>
     public partial class JobContainerMapProfile : Profile

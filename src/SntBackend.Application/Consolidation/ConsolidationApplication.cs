@@ -116,7 +116,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             return output;
         }
 
-        public async Task<JobConsolDtoOutput> Detail(string id)
+        public async Task<ConsolidationDetailOutput> Detail(string id)
         {
             var dp = new DynamicParameters();
             dp.Add("id", id);
@@ -124,9 +124,31 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             var sql = @"
 SELECT t.*
 FROM JobConsol t
-WHERE t.jk_pk = @id
+WHERE t.jk_pk = @id;
+
+SELECT t.*
+FROM JobDocAddress t
+WHERE t.e2_parentid = @id
+    AND t.e2_addresstype IN ('CEC', 'CIC');
+
+SELECT t.*
+FROM JobConsolTransport t
+WHERE t.jw_parentguid = @id
+    AND t.jw_parenttype = 'CON'
 ";
-            return await _appSqlServerRepository.QueryFirstOrDefaultAsync<JobConsolDtoOutput>(sql, dp);
+
+            using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
+
+            var detail = await multi.ReadFirstOrDefaultAsync<ConsolidationDetailOutput>();
+            if (detail == null) return null;
+
+            var agents = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
+            detail.local_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CEC");
+            detail.overseas_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CIC");
+
+            detail.transport_list = (await multi.ReadAsync<JobConsolTransportDtoOutput>()).ToList();
+
+            return detail;
         }
     }
 }

@@ -53,7 +53,7 @@ namespace SntBackend.EntityGenerate
                     "JobConShipLink", "OrgHeader", "OrgAddress","AccTransactionHeader",
                     "AccTransactionLines","AccTransactionMatchLink","AccChargeCode",
                     "GlbCompany","GlbBranch","GlbStaff", "JobDocAddress", "JobContainer",
-                    "JobPackLines", "JobDocumentData" };
+                    "JobPackLines", "JobDocumentData", "JobConsolTransport" };
                 var tableSql = @"
 select t.TABLE_NAME, g.value as TABLE_COMMENT
   from information_schema.TABLES t

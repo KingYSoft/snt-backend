@@ -111,6 +111,17 @@ namespace SntBackend.SqlServer.EntityFrameworkCore.Repositories
 
     /// <summary>
     /// 
+    /// JobConsolTransportRepository
+    /// </summary>
+    public partial class JobConsolTransportRepository : SqlServerEfCoreRepositoryBase<JobConsolTransport, string>, IJobConsolTransportRepository
+    {
+        public JobConsolTransportRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
     /// JobContainerRepository
     /// </summary>
     public partial class JobContainerRepository : SqlServerEfCoreRepositoryBase<JobContainer, string>, IJobContainerRepository

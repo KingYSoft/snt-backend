@@ -83,6 +83,14 @@ namespace SntBackend.DomainService.Share.Repositories
 
     /// <summary>
     /// 
+    /// IJobConsolTransportRepository
+    /// </summary>
+    public partial interface IJobConsolTransportRepository : IRepository<JobConsolTransport, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
     /// IJobContainerRepository
     /// </summary>
     public partial interface IJobContainerRepository : IRepository<JobContainer, string>, Abp.Dependency.ITransientDependency

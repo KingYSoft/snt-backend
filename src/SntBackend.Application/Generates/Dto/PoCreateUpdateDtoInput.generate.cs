@@ -2162,6 +2162,269 @@ namespace SntBackend.Application.Po.Dto
     }
 
     /// <summary>
+    /// JobConsolTransportCreateUpdateDtoInput
+    /// </summary>
+    public partial class JobConsolTransportCreateUpdateDtoInput : EntityDto<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_isvalid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_transportmode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_legorder { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_transporttype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_rq_trucktype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_status { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_pl_nkcarrierservicelevel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_vessel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_voyageflight { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_islinked { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_oa_departurelocation { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_rl_nkloadport { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_etd { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_atd { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_rl_nkdiscport { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_oa_arrivallocation { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_eta { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_ata { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_oa_carrieraddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_carrierbookingreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_oa_creditoraddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_ischarter { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jw_distance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_distanceunit { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_legnotes { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jw_customdecimal1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_customflag1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_customlink1 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_jx { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_parenttype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_parentguid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_sta { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_std { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_aircrafttype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_onlineschedulestatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_depotavailabilitydate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_depotcutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_depotreceivalcommences { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_depotstoragedate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_documentarycutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_terminalavailabilitydate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_terminalcutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_terminalreceivalcommences { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_terminalstoragedate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_vgmcutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jw_iscargoonly { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_vesselscreeningstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_additionaltransportmode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_dgcutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_dgreceivalcommences { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_emptycutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_emptyreceivalcommences { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_reefercutoff { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jw_reeferreceivalcommences { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_servicestring { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_arrivalportrouteid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_departureportrouteid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_rv_vessel { get; set; }
+    }
+
+    /// <summary>
     /// JobContainerCreateUpdateDtoInput
     /// </summary>
     public partial class JobContainerCreateUpdateDtoInput : EntityDto<string>

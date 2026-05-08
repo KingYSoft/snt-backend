@@ -37,13 +37,13 @@ public class ConsolidationController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("detail")]
-    public async Task<JsonResponse<JobConsolDtoOutput>> Detail([FromQuery] string id)
+    public async Task<JsonResponse<ConsolidationDetailOutput>> Detail([FromQuery] string id)
     {
         var result = await _consolidationApplication.Detail(id);
         if (result == null)
         {
-            return new JsonResponse<JobConsolDtoOutput>(false, "Consolidation not found.");
+            return new JsonResponse<ConsolidationDetailOutput>(false, "Consolidation not found.");
         }
-        return new JsonResponse<JobConsolDtoOutput> { Data = result };
+        return new JsonResponse<ConsolidationDetailOutput> { Data = result };
     }
 }

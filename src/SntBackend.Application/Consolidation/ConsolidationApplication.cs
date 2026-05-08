@@ -134,7 +134,12 @@ WHERE t.e2_parentid = @id
 SELECT t.*
 FROM JobConsolTransport t
 WHERE t.jw_parentguid = @id
-    AND t.jw_parenttype = 'CON'
+    AND t.jw_parenttype = 'CON';
+
+SELECT s.*
+FROM JobShipment s
+INNER JOIN JobConShipLink l ON l.jn_js = s.js_pk
+WHERE l.jn_jk = @id
 ";
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
@@ -147,6 +152,8 @@ WHERE t.jw_parentguid = @id
             detail.overseas_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CIC");
 
             detail.transport_list = (await multi.ReadAsync<JobConsolTransportDtoOutput>()).ToList();
+
+            detail.shps = (await multi.ReadAsync<JobShipmentDtoOutput>()).ToList();
 
             return detail;
         }

@@ -11,6 +11,189 @@ using Abp.Domain.Entities;
 namespace SntBackend.DomainService.Share.Po
 {
     /// <summary>
+    /// AccBankAccount
+    /// </summary>
+    public partial class AccBankAccount : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_isactive { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_accounttype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_code { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_desc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_bankaccountname { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_bankname { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_bankaddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_isdefaultreceiptbankaccount { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_rn_nkbankaccountcountry { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_accountnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_swift { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_debitcreditcardname { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_debitcreditcardnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_debitcreditcardexpiry { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_detaileddepositslip { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_autoddrformat { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_openperiod { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal ab_openbalance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal ab_closingbalance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal ab_openosbalance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal ab_closingosbalance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal ab_statementbalance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_accounteftuserid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_allowautoddr { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_showdetailsondirectdebits { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? ab_lastreconciledate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? ab_laststatementdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_chequenumdigits { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_gc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_gb { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_rx_nkaccountcurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_ag { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_so_chequetemplate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_accountnum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_bsb { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int ab_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_fullaccountnumber { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_paymentprovider { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? ab_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? ab_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string ab_bankabbreviation { get; set; }
+    }
+
+    /// <summary>
     /// AccChargeCode
     /// </summary>
     public partial class AccChargeCode : Entity<string>

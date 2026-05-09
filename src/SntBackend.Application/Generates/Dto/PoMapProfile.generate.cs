@@ -12,6 +12,18 @@ namespace SntBackend.Application.Po.Dto
 {
     /// <summary>
     /// AutoMapper Profile 实体映射文件
+    /// AccBankAccountMapProfile
+    /// </summary>
+    public partial class AccBankAccountMapProfile : Profile
+    {
+        public AccBankAccountMapProfile()
+        {
+            CreateMap<AccBankAccountCreateUpdateDtoInput, AccBankAccount>();
+            CreateMap<AccBankAccount, AccBankAccountDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
     /// AccChargeCodeMapProfile
     /// </summary>
     public partial class AccChargeCodeMapProfile : Profile

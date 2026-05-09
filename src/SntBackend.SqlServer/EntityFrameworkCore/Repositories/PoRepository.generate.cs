@@ -12,6 +12,17 @@ namespace SntBackend.SqlServer.EntityFrameworkCore.Repositories
 {
     /// <summary>
     /// 
+    /// AccBankAccountRepository
+    /// </summary>
+    public partial class AccBankAccountRepository : SqlServerEfCoreRepositoryBase<AccBankAccount, string>, IAccBankAccountRepository
+    {
+        public AccBankAccountRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
     /// AccChargeCodeRepository
     /// </summary>
     public partial class AccChargeCodeRepository : SqlServerEfCoreRepositoryBase<AccChargeCode, string>, IAccChargeCodeRepository

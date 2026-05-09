@@ -16,6 +16,9 @@ namespace SntBackend.DomainService.Repositories
     {
         /// <summary>
         /// </summary>
+        IAccBankAccountRepository AccBankAccountRepository { get; }
+        /// <summary>
+        /// </summary>
         IAccChargeCodeRepository AccChargeCodeRepository { get; }
         /// <summary>
         /// </summary>

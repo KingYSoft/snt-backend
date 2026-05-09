@@ -11,6 +11,14 @@ namespace SntBackend.DomainService.Share.Repositories
 {
     /// <summary>
     /// 
+    /// IAccBankAccountRepository
+    /// </summary>
+    public partial interface IAccBankAccountRepository : IRepository<AccBankAccount, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
     /// IAccChargeCodeRepository
     /// </summary>
     public partial interface IAccChargeCodeRepository : IRepository<AccChargeCode, string>, Abp.Dependency.ITransientDependency

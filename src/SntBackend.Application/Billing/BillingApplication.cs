@@ -566,7 +566,6 @@ SELECT COUNT(*)
 FROM AccTransactionHeader t
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY')
-    AND t.ah_transactioncreatedbymatching = 1
     {whereIf}
 ";
             var pageSql = @$"
@@ -581,8 +580,7 @@ SELECT
     t.ah_desc AS Description
 FROM AccTransactionHeader t
 WHERE t.ah_iscancelled = 0
-    AND t.ah_transactiontype IN ('REC', 'PAY')
-    AND t.ah_transactioncreatedbymatching = 1
+    AND t.ah_transactiontype IN ('REC', 'PAY') 
     {whereIf}
 ORDER BY t.ah_invoicedate DESC, t.ah_pk DESC
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY

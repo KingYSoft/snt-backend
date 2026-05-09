@@ -6,6 +6,7 @@ using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Facade.AspNetCore.Mvc.Authorization;
 
 namespace SntBackend.Web.Host.Controllers;
 
@@ -49,6 +50,8 @@ public class MatchTransactionController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("query-page")]
+    [NoToken]
+
     public async Task<JsonResponse<MatchTransactionPageOutput>> QueryPage([FromQuery] MatchTransactionPageInput input)
     {
         var result = await _billingApplication.QueryMatchTransactionPage(input);
@@ -71,6 +74,7 @@ public class MatchTransactionController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("detail")]
+    [NoToken]
     public async Task<JsonResponse<MatchTransactionDetailOutput>> Detail([FromQuery] string Pk)
     {
         var result = await _billingApplication.MatchTransactionDetail(Pk);

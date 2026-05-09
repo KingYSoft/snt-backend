@@ -5,6 +5,7 @@ using SntBackend.Application.Consolidation.Dto;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Threading.Tasks;
+using Facade.AspNetCore.Mvc.Authorization;
 
 namespace SntBackend.Web.Host.Controllers;
 
@@ -37,6 +38,7 @@ public class ConsolidationController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("detail")]
+    [NoToken]
     public async Task<JsonResponse<ConsolidationDetailOutput>> Detail([FromQuery] string id)
     {
         var result = await _consolidationApplication.Detail(id);

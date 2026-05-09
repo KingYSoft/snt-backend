@@ -465,6 +465,104 @@ VALUES (
                 await _appSqlServerRepository.ExecuteAsync(insertHeaderSql, headerDp);
                 newHeaderPks.Add(newPk);
 
+                // 复制原 INV 的 AccTransactionLines 至新 REC/PAY header，按比例分摊金额
+                var origLinesSql = @"
+SELECT l.*
+FROM AccTransactionLines l
+WHERE l.al_ah = @origPk
+ORDER BY l.al_sequence
+";
+                var origLinesDp = new DynamicParameters();
+                origLinesDp.Add("origPk", line.TthPk);
+                var origLines = (await _appSqlServerRepository.QueryAsync<AccTransactionLinesDtoOutput>(origLinesSql, origLinesDp)).ToList();
+
+                var invOutstandingOriginal = osTotal == 0 ? (decimal)invoice.ah_invoiceamount : Math.Abs(osTotal);
+                var invOutstandingHome = outstanding == 0 ? (decimal)invoice.ah_invoiceamount : Math.Abs(outstanding);
+                var ratioOriginal = invOutstandingOriginal == 0 ? 0 : writeOffOriginal / invOutstandingOriginal;
+                var ratioHome = invOutstandingHome == 0 ? 0 : writeOffHome / invOutstandingHome;
+
+                decimal allocatedOriginal = 0;
+                decimal allocatedHome = 0;
+
+                for (int i = 0; i < origLines.Count; i++)
+                {
+                    var oldLine = origLines[i];
+                    decimal newOsAmount;
+                    decimal newLineAmount;
+
+                    if (i == origLines.Count - 1)
+                    {
+                        newOsAmount = writeOffOriginal - allocatedOriginal;
+                        newLineAmount = writeOffHome - allocatedHome;
+                    }
+                    else
+                    {
+                        newOsAmount = Math.Round(oldLine.al_osamount * ratioOriginal, 2, MidpointRounding.AwayFromZero);
+                        newLineAmount = Math.Round(oldLine.al_lineamount * ratioHome, 2, MidpointRounding.AwayFromZero);
+                        allocatedOriginal += newOsAmount;
+                        allocatedHome += newLineAmount;
+                    }
+
+                    var insertLineSql = @"
+INSERT INTO AccTransactionLines (
+    al_pk, al_ah, al_linetype, al_sequence, al_desc,
+    al_lineamount, al_at, al_gstvat, al_gstvatbasis, al_a9_vatclass,
+    al_aw, al_withholdingtax, al_unitqty, al_unitprice, al_osunitprice,
+    al_osamount, al_rx_nktransactioncurrency, al_exchangerate,
+    al_postperiod, al_postdate,
+    al_jh, al_oh, al_ge, al_gb, al_ag, al_gc, al_ac,
+    al_govtchargecode, al_gstvatextra, al_taxdate, al_gb_taxbranch,
+    al_systemcreatetimeutc, al_systemcreateuser
+)
+VALUES (
+    @newLinePk, @newAhPk, @lineType, @sequence, @desc,
+    @lineAmount, @at, @gstvat, @gstvatbasis, @vatclass,
+    @aw, @withholdingtax, @unitqty, @unitprice, @osunitprice,
+    @osamount, @currency, @exrate,
+    @postperiod, @postdate,
+    @jh, @oh, @ge, @gb, @ag, @gc, @ac,
+    @govtchargecode, @gstvatextra, @taxdate, @gbtaxbranch,
+    @now, @user
+)
+";
+                    var lineDp = new DynamicParameters();
+                    lineDp.Add("newLinePk", Guid.NewGuid().ToString());
+                    lineDp.Add("newAhPk", newPk);
+                    lineDp.Add("lineType", oldLine.al_linetype);
+                    lineDp.Add("sequence", oldLine.al_sequence);
+                    lineDp.Add("desc", oldLine.al_desc);
+                    lineDp.Add("lineAmount", isReceipt ? newLineAmount : -newLineAmount);
+                    lineDp.Add("at", oldLine.al_at);
+                    lineDp.Add("gstvat", oldLine.al_gstvat);
+                    lineDp.Add("gstvatbasis", oldLine.al_gstvatbasis);
+                    lineDp.Add("vatclass", oldLine.al_a9_vatclass);
+                    lineDp.Add("aw", oldLine.al_aw);
+                    lineDp.Add("withholdingtax", oldLine.al_withholdingtax);
+                    lineDp.Add("unitqty", oldLine.al_unitqty);
+                    lineDp.Add("unitprice", oldLine.al_unitprice);
+                    lineDp.Add("osunitprice", oldLine.al_osunitprice);
+                    lineDp.Add("osamount", isReceipt ? newOsAmount : -newOsAmount);
+                    lineDp.Add("currency", oldLine.al_rx_nktransactioncurrency);
+                    lineDp.Add("exrate", oldLine.al_exchangerate);
+                    lineDp.Add("postperiod", oldLine.al_postperiod);
+                    lineDp.Add("postdate", input.SettleDate.Value);
+                    lineDp.Add("jh", oldLine.al_jh);
+                    lineDp.Add("oh", oldLine.al_oh);
+                    lineDp.Add("ge", oldLine.al_ge);
+                    lineDp.Add("gb", oldLine.al_gb);
+                    lineDp.Add("ag", oldLine.al_ag);
+                    lineDp.Add("gc", oldLine.al_gc);
+                    lineDp.Add("ac", oldLine.al_ac);
+                    lineDp.Add("govtchargecode", oldLine.al_govtchargecode);
+                    lineDp.Add("gstvatextra", oldLine.al_gstvatextra);
+                    lineDp.Add("taxdate", oldLine.al_taxdate);
+                    lineDp.Add("gbtaxbranch", oldLine.al_gb_taxbranch);
+                    lineDp.Add("now", DateTime.UtcNow);
+                    lineDp.Add("user", AbpSession.UserId?.ToString());
+
+                    await _appSqlServerRepository.ExecuteAsync(insertLineSql, lineDp);
+                }
+
                 // 新建 MatchLink
                 var matchLinkPk = Guid.NewGuid().ToString();
                 var insertMatchLinkSql = @"
@@ -612,6 +710,34 @@ ORDER BY l.al_sequence
             return (await _appSqlServerRepository.QueryAsync<AccTransactionLinesDtoOutput>(sql, dp)).ToList();
         }
 
+        public async Task<List<AccBankAccountDtoOutput>> QueryWriteOffBank(WriteOffBankInput input)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(input?.SettleCompanyName))
+            {
+                whereIf += " AND b.ab_bankname LIKE @bankName ";
+                dp.Add("bankName", $"{input.SettleCompanyName.Trim()}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(input?.SettleCompanyCode))
+            {
+                whereIf += " AND b.ab_code LIKE @code ";
+                dp.Add("code", $"{input.SettleCompanyCode.Trim()}%");
+            }
+
+            var sql = @$"
+SELECT b.*
+FROM AccBankAccount b
+WHERE ISNULL(b.ab_isactive, 0) = 1
+    AND ISNULL(b.ab_accountnum, '') <> ''
+    {whereIf}
+ORDER BY b.ab_accountnum
+";
+            return (await _appSqlServerRepository.QueryAsync<AccBankAccountDtoOutput>(sql, dp)).ToList();
+        }
+
         public async Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk)
         {
             var dp = new DynamicParameters();
@@ -625,6 +751,19 @@ WHERE t.ah_pk = @pk
             var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(headerSql, dp);
             if (header == null) return null;
 
+            AccBankAccountDtoOutput bank = null;
+            if (!string.IsNullOrWhiteSpace(header.ah_ab))
+            {
+                var bankDp = new DynamicParameters();
+                bankDp.Add("ab", header.ah_ab);
+                var bankSql = @"
+SELECT b.*
+FROM AccBankAccount b
+WHERE b.ab_pk = @ab
+";
+                bank = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccBankAccountDtoOutput>(bankSql, bankDp);
+            }
+
             var linesSql = @"
 SELECT l.*
 FROM AccTransactionLines l
@@ -636,6 +775,7 @@ ORDER BY l.al_sequence
             return new MatchTransactionDetailOutput
             {
                 Header = header,
+                Bank = bank,
                 Lines = lines
             };
         }

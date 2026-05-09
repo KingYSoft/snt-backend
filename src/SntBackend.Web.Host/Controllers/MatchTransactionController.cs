@@ -28,6 +28,7 @@ public class MatchTransactionController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("query-outstandingInvoices")]
+    [NoToken]
     public async Task<JsonResponse<OutstandingInvoiceOutput>> QueryOutstandingInvoices([FromBody] OutstandingInvoiceInput input)
     {
         var result = await _billingApplication.QueryOutstandingInvoices(input);
@@ -83,5 +84,17 @@ public class MatchTransactionController : SntBackendControllerBase
             return new JsonResponse<MatchTransactionDetailOutput>(false, "Match transaction record not found.");
         }
         return new JsonResponse<MatchTransactionDetailOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 查询核销可用银行账户
+    /// </summary>
+    [HttpPost]
+    [Route("get-writeOff-bank")]
+    [NoToken]
+    public async Task<JsonResponse<List<AccBankAccountDtoOutput>>> GetWriteOffBank([FromBody] WriteOffBankInput input)
+    {
+        var result = await _billingApplication.QueryWriteOffBank(input);
+        return new JsonResponse<List<AccBankAccountDtoOutput>> { Data = result };
     }
 }

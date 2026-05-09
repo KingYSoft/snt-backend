@@ -134,12 +134,18 @@ WHERE t.e2_parentid = @id
 SELECT t.*
 FROM JobConsolTransport t
 WHERE t.jw_parentguid = @id
-    AND t.jw_parenttype = 'CON';
+    AND t.jw_parenttype = 'CON'
+ORDER BY t.jw_legorder;
 
 SELECT s.*
 FROM JobShipment s
 INNER JOIN JobConShipLink l ON l.jn_js = s.js_pk
-WHERE l.jn_jk = @id
+WHERE l.jn_jk = @id;
+
+SELECT t.*
+FROM JobContainer t
+WHERE t.jc_jk = @id
+    AND t.jc_isvalid = 1
 ";
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
@@ -154,6 +160,8 @@ WHERE l.jn_jk = @id
             detail.transport_list = (await multi.ReadAsync<JobConsolTransportDtoOutput>()).ToList();
 
             detail.shps = (await multi.ReadAsync<JobShipmentDtoOutput>()).ToList();
+
+            detail.containers = (await multi.ReadAsync<JobContainerDtoOutput>()).ToList();
 
             return detail;
         }

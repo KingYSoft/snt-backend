@@ -9,5 +9,6 @@ namespace SntBackend.Application.Consolidation.Dto
         public JobDocAddressDtoOutput overseas_agent { get; set; }
         public List<JobConsolTransportDtoOutput> transport_list { get; set; } = new();
         public List<JobShipmentDtoOutput> shps { get; set; } = new();
+        public List<JobContainerDtoOutput> containers { get; set; } = new();
     }
 }

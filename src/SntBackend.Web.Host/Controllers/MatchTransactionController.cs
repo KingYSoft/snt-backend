@@ -6,6 +6,7 @@ using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Facade.AspNetCore.Mvc.Authorization;
 
 namespace SntBackend.Web.Host.Controllers;
 
@@ -26,7 +27,7 @@ public class MatchTransactionController : SntBackendControllerBase
     /// 查询可核销的未结发票
     /// </summary>
     [HttpPost]
-    [Route("query-outstandingInvoices")]
+    [Route("query-outstandingInvoices")] 
     public async Task<JsonResponse<OutstandingInvoiceOutput>> QueryOutstandingInvoices([FromBody] OutstandingInvoiceInput input)
     {
         var result = await _billingApplication.QueryOutstandingInvoices(input);
@@ -48,7 +49,8 @@ public class MatchTransactionController : SntBackendControllerBase
     /// 核销记录分页查询
     /// </summary>
     [HttpGet]
-    [Route("query-page")]
+    [Route("query-page")] 
+
     public async Task<JsonResponse<MatchTransactionPageOutput>> QueryPage([FromQuery] MatchTransactionPageInput input)
     {
         var result = await _billingApplication.QueryMatchTransactionPage(input);
@@ -70,7 +72,7 @@ public class MatchTransactionController : SntBackendControllerBase
     /// 核销记录完整详情
     /// </summary>
     [HttpGet]
-    [Route("detail")]
+    [Route("detail")] 
     public async Task<JsonResponse<MatchTransactionDetailOutput>> Detail([FromQuery] string Pk)
     {
         var result = await _billingApplication.MatchTransactionDetail(Pk);
@@ -79,5 +81,16 @@ public class MatchTransactionController : SntBackendControllerBase
             return new JsonResponse<MatchTransactionDetailOutput>(false, "Match transaction record not found.");
         }
         return new JsonResponse<MatchTransactionDetailOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 查询核销可用银行账户
+    /// </summary>
+    [HttpPost]
+    [Route("get-writeOff-bank")] 
+    public async Task<JsonResponse<List<AccBankAccountDtoOutput>>> GetWriteOffBank([FromBody] WriteOffBankInput input)
+    {
+        var result = await _billingApplication.QueryWriteOffBank(input);
+        return new JsonResponse<List<AccBankAccountDtoOutput>> { Data = result };
     }
 }

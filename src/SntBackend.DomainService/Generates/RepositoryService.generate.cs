@@ -17,6 +17,9 @@ namespace SntBackend.DomainService.Repositories
     {
         /// <summary>
         /// </summary>
+        public IAccBankAccountRepository AccBankAccountRepository => IocManager.Instance.Resolve<IAccBankAccountRepository>();
+        /// <summary>
+        /// </summary>
         public IAccChargeCodeRepository AccChargeCodeRepository => IocManager.Instance.Resolve<IAccChargeCodeRepository>();
         /// <summary>
         /// </summary>

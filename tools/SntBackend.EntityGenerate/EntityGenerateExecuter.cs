@@ -53,9 +53,9 @@ namespace SntBackend.EntityGenerate
                     "JobConShipLink", "OrgHeader", "OrgAddress","AccTransactionHeader",
                     "AccTransactionLines","AccTransactionMatchLink","AccChargeCode",
                     "GlbCompany","GlbBranch","GlbStaff", "JobDocAddress", "JobContainer",
-                    "JobPackLines", "JobDocumentData", "JobConsolTransport","AccBankAccount" };
+                    "JobPackLines", "JobDocumentData", "JobConsolTransport","AccBankAccount","JobCharge" };
                 var tableSql = @"
-select t.TABLE_NAME, g.value as TABLE_COMMENT
+select t.TABLE_NAME, g.value as TABLE_COMMENTwoga
   from information_schema.TABLES t
   left join sys.extended_properties g
     on g.major_id = OBJECT_ID(t.TABLE_NAME)

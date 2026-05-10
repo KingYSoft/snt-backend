@@ -108,6 +108,18 @@ namespace SntBackend.Application.Po.Dto
     }
     /// <summary>
     /// AutoMapper Profile 实体映射文件
+    /// JobChargeMapProfile
+    /// </summary>
+    public partial class JobChargeMapProfile : Profile
+    {
+        public JobChargeMapProfile()
+        {
+            CreateMap<JobChargeCreateUpdateDtoInput, JobCharge>();
+            CreateMap<JobCharge, JobChargeDtoOutput>();
+        }
+    }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
     /// JobConShipLinkMapProfile
     /// </summary>
     public partial class JobConShipLinkMapProfile : Profile

@@ -779,5 +779,285 @@ ORDER BY l.al_sequence
                 Lines = lines
             };
         }
+
+        public async Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input)
+        {
+            if (string.IsNullOrWhiteSpace(input?.shpPk))
+                throw new System.Exception("shpPk cannot be empty.");
+            if (string.IsNullOrWhiteSpace(input.chargeType))
+                throw new System.Exception("chargeType cannot be empty.");
+
+            var isAr = string.Equals(input.chargeType, "AR", System.StringComparison.OrdinalIgnoreCase);
+            var isAp = string.Equals(input.chargeType, "AP", System.StringComparison.OrdinalIgnoreCase);
+            if (!isAr && !isAp)
+                throw new System.Exception("chargeType must be AR or AP.");
+
+            // 按所选侧投影列名 + 过滤"该侧无效"行
+            var amountCol = isAr ? "jr.jr_localsellamt" : "jr.jr_localcostamt";
+            var osAmountCol = isAr ? "jr.jr_ossellamt" : "jr.jr_oscostamt";
+            var currencyCol = isAr ? "jr.jr_rx_nksellcurrency" : "jr.jr_rx_nkcostcurrency";
+            var partyCol = isAr ? "jr.jr_oh_sellaccount" : "jr.jr_oh_costaccount";
+            var rateCol = isAr ? "jr.jr_ossellexrate" : "jr.jr_oscostexrate";
+            var gstCol = isAr ? "jr.jr_at_sellgstrate" : "jr.jr_at_costgstrate";
+            var whtCol = isAr ? "jr.jr_aw_sellwhtrate" : "jr.jr_aw_costwhtrate";
+            var vatCol = isAr ? "jr.jr_a9_sellvatclass" : "jr.jr_a9_costvatclass";
+            var lineCol = isAr ? "jr.jr_al_arline" : "jr.jr_al_apline";
+
+            var sideFilter = isAr
+                ? "( jr.jr_localsellamt <> 0 OR jr.jr_al_arline IS NOT NULL OR jr.jr_oh_sellaccount IS NOT NULL )"
+                : "( jr.jr_localcostamt <> 0 OR jr.jr_al_apline IS NOT NULL OR jr.jr_oh_costaccount IS NOT NULL )";
+
+            var orderBy = !string.IsNullOrWhiteSpace(input.Sorting) &&
+                          input.Sorting.IndexOf("DESC", System.StringComparison.OrdinalIgnoreCase) >= 0
+                ? "ORDER BY jr.jr_displaysequence DESC, jr.jr_pk DESC"
+                : "ORDER BY jr.jr_displaysequence, jr.jr_pk";
+
+            var dp = new DynamicParameters();
+            dp.Add("shpPk", input.shpPk);
+            dp.Add("skipCount", input.SkipCount);
+            dp.Add("takeCount", input.MaxResultCount);
+
+            var totalSql = $@"
+SELECT COUNT(*)
+FROM JobCharge jr
+INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+WHERE jh.jh_parentid = @shpPk
+    AND jh.jh_parenttablecode = 'JS'
+    AND jh.jh_isvalid = 1
+    AND {sideFilter}
+";
+            var pageSql = $@"
+SELECT
+    jr.jr_pk,
+    jr.jr_jh,
+    jr.jr_chargetype,
+    jr.jr_desc,
+    {amountCol}    AS amount,
+    {osAmountCol}  AS os_amount,
+    {currencyCol}  AS currency,
+    {partyCol}     AS party_oh,
+    {rateCol}      AS exchange_rate,
+    {gstCol}       AS gst_rate,
+    {whtCol}       AS wht_rate,
+    {vatCol}       AS vat_class,
+    {lineCol}      AS line_pk,
+    inv.ah_pk              AS invoice_pk,
+    inv.ah_transactionnum  AS invoice_no,
+    inv.ah_invoicedate     AS invoice_date,
+    CASE WHEN {lineCol} IS NULL THEN 'Y' ELSE 'N' END AS Draft
+FROM JobCharge jr
+INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
+LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
+WHERE jh.jh_parentid = @shpPk
+    AND jh.jh_parenttablecode = 'JS'
+    AND jh.jh_isvalid = 1
+    AND {sideFilter}
+{orderBy}
+OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+";
+
+            var output = new BillingChargeLineOutput();
+            using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
+{totalSql};
+{pageSql}
+", dp))
+            {
+                output.TotalCount = await multi.ReadFirstAsync<int>();
+                output.Items = (await multi.ReadAsync<BillingChargeLineItem>()).ToList();
+            }
+
+            return output;
+        }
+
+        public async Task<BillingDraftPageOutput> QueryDraftPage(BillingDraftPageInput input)
+        {
+            if (string.IsNullOrWhiteSpace(input?.shpPk))
+                throw new System.Exception("shpPk cannot be empty.");
+
+            var orderBy = !string.IsNullOrWhiteSpace(input.Sorting) &&
+                          input.Sorting.IndexOf("DESC", System.StringComparison.OrdinalIgnoreCase) >= 0
+                ? "ORDER BY ah.ah_invoicedate DESC, ah.ah_pk DESC"
+                : "ORDER BY ah.ah_invoicedate, ah.ah_pk";
+
+            var dp = new DynamicParameters();
+            dp.Add("shpPk", input.shpPk);
+            dp.Add("skipCount", input.SkipCount);
+            dp.Add("takeCount", input.MaxResultCount);
+
+            var ledgerWhere = "";
+            if (!string.IsNullOrWhiteSpace(input.chargeType))
+            {
+                ledgerWhere = " AND ah.ah_ledger = @chargeType ";
+                dp.Add("chargeType", input.chargeType);
+            }
+
+            var totalSql = $@"
+SELECT COUNT(*)
+FROM AccTransactionHeader ah
+INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+WHERE jh.jh_parentid = @shpPk
+    AND jh.jh_parenttablecode = 'JS'
+    AND jh.jh_isvalid = 1
+    AND ah.ah_iscancelled = 0
+    AND ah.ah_transactiontype = 'INV'
+    {ledgerWhere}
+";
+            var pageSql = $@"
+SELECT ah.*
+FROM AccTransactionHeader ah
+INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+WHERE jh.jh_parentid = @shpPk
+    AND jh.jh_parenttablecode = 'JS'
+    AND jh.jh_isvalid = 1
+    AND ah.ah_iscancelled = 0
+    AND ah.ah_transactiontype = 'INV'
+    {ledgerWhere}
+{orderBy}
+OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+";
+
+            var output = new BillingDraftPageOutput();
+            using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
+{totalSql};
+{pageSql}
+", dp))
+            {
+                output.TotalCount = await multi.ReadFirstAsync<int>();
+                output.Items = (await multi.ReadAsync<AccTransactionHeaderDtoOutput>()).ToList();
+            }
+
+            return output;
+        }
+
+        public async Task<BillingSummaryDto> GetBillingSummary(string shpPk)
+        {
+            if (string.IsNullOrWhiteSpace(shpPk))
+                throw new System.Exception("shpPk cannot be empty.");
+
+            var dp = new DynamicParameters();
+            dp.Add("shpPk", shpPk);
+
+            var sql = @"
+SELECT
+    ISNULL(SUM(jr.jr_localsellamt), 0) AS ar,
+    ISNULL(SUM(jr.jr_localcostamt), 0) AS ap
+FROM JobCharge jr
+INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+WHERE jh.jh_parentid = @shpPk
+    AND jh.jh_parenttablecode = 'JS'
+    AND jh.jh_isvalid = 1
+";
+            var row = await _appSqlServerRepository.QueryFirstOrDefaultAsync<(decimal ar, decimal ap)>(sql, dp);
+
+            var ar = row.ar;
+            var ap = row.ap;
+            var profits = ar - ap;
+            var grossProfitMargin = ar > 0 ? profits / ar * 100 : 0;
+
+            return new BillingSummaryDto
+            {
+                ar = System.Math.Round(ar, 2),
+                ap = System.Math.Round(ap, 2),
+                profits = System.Math.Round(profits, 2),
+                grossProfitMargin = System.Math.Round(grossProfitMargin, 2),
+                home_currency = ""
+            };
+        }
+
+        public async Task<QueryChargesByInvoiceOutput> QueryChargesByInvoiceNo(string invoiceNo)
+        {
+            if (string.IsNullOrWhiteSpace(invoiceNo))
+                throw new System.Exception("invoiceNo cannot be empty.");
+
+            var dp = new DynamicParameters();
+            dp.Add("invoiceNo", invoiceNo);
+
+            var headSql = @"
+SELECT TOP 1 ah.*
+FROM AccTransactionHeader ah
+WHERE (ah.ah_transactionnum = @invoiceNo OR ah.ah_consolidatedinvoiceref = @invoiceNo)
+    AND ah.ah_iscancelled = 0
+ORDER BY ah.ah_invoicedate DESC, ah.ah_pk DESC
+";
+            var head = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(headSql, dp);
+            if (head == null)
+            {
+                return new QueryChargesByInvoiceOutput();
+            }
+
+            var partyDp = new DynamicParameters();
+            partyDp.Add("oh", head.ah_oh);
+            var partySql = @"
+SELECT TOP 1 oh.oh_fullname
+FROM OrgHeader oh
+WHERE oh.oh_pk = @oh
+";
+            var billingParty = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(partySql, partyDp);
+
+            var linesDp = new DynamicParameters();
+            linesDp.Add("ahPk", head.ah_pk);
+            var linesSql = @"
+SELECT al.*
+FROM AccTransactionLines al
+WHERE al.al_ah = @ahPk
+ORDER BY al.al_sequence
+";
+            var lines = (await _appSqlServerRepository.QueryAsync<AccTransactionLinesDtoOutput>(linesSql, linesDp)).ToList();
+
+            // 反查关联的预录费用 (JobCharge)，按发票的 ledger 决定取 AR/AP 侧
+            var charges = new List<BillingChargeLineItem>();
+            if (lines.Count > 0)
+            {
+                var isAr = string.Equals(head.ah_ledger, "AR", System.StringComparison.OrdinalIgnoreCase);
+                var amountCol = isAr ? "jr.jr_localsellamt" : "jr.jr_localcostamt";
+                var osAmountCol = isAr ? "jr.jr_ossellamt" : "jr.jr_oscostamt";
+                var currencyCol = isAr ? "jr.jr_rx_nksellcurrency" : "jr.jr_rx_nkcostcurrency";
+                var partyCol = isAr ? "jr.jr_oh_sellaccount" : "jr.jr_oh_costaccount";
+                var rateCol = isAr ? "jr.jr_ossellexrate" : "jr.jr_oscostexrate";
+                var gstCol = isAr ? "jr.jr_at_sellgstrate" : "jr.jr_at_costgstrate";
+                var whtCol = isAr ? "jr.jr_aw_sellwhtrate" : "jr.jr_aw_costwhtrate";
+                var vatCol = isAr ? "jr.jr_a9_sellvatclass" : "jr.jr_a9_costvatclass";
+                var lineCol = isAr ? "jr.jr_al_arline" : "jr.jr_al_apline";
+
+                var linePks = lines.Select(x => x.al_pk).ToList();
+                var chargesDp = new DynamicParameters();
+                chargesDp.Add("linePks", linePks);
+                chargesDp.Add("ahPk", head.ah_pk);
+
+                var chargesSql = $@"
+SELECT
+    jr.jr_pk,
+    jr.jr_jh,
+    jr.jr_chargetype,
+    jr.jr_desc,
+    {amountCol}    AS amount,
+    {osAmountCol}  AS os_amount,
+    {currencyCol}  AS currency,
+    {partyCol}     AS party_oh,
+    {rateCol}      AS exchange_rate,
+    {gstCol}       AS gst_rate,
+    {whtCol}       AS wht_rate,
+    {vatCol}       AS vat_class,
+    {lineCol}      AS line_pk,
+    @ahPk          AS invoice_pk,
+    @invoiceNo     AS invoice_no,
+    NULL           AS invoice_date,
+    'N'            AS Draft
+FROM JobCharge jr
+WHERE {lineCol} IN @linePks
+ORDER BY jr.jr_displaysequence, jr.jr_pk
+";
+                charges = (await _appSqlServerRepository.QueryAsync<BillingChargeLineItem>(chargesSql, new { linePks, ahPk = head.ah_pk, invoiceNo = invoiceNo })).ToList();
+            }
+
+            return new QueryChargesByInvoiceOutput
+            {
+                Head = head,
+                Lines = lines,
+                Charges = charges,
+                BillingParty = billingParty
+            };
+        }
     }
 }

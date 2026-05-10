@@ -40,6 +40,9 @@ namespace SntBackend.DomainService.Repositories
         IGlbStaffRepository GlbStaffRepository { get; }
         /// <summary>
         /// </summary>
+        IJobChargeRepository JobChargeRepository { get; }
+        /// <summary>
+        /// </summary>
         IJobConShipLinkRepository JobConShipLinkRepository { get; }
         /// <summary>
         /// </summary>

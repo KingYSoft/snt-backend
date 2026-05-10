@@ -124,8 +124,10 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             dp.Add("id", id);
 
             var sql = @"
-SELECT t.*
+SELECT t.*, oh.oh_fullname as carrier_name
 FROM JobShipment t
+LEFT JOIN OrgAddress oa ON oa.oa_pk = t.js_oa_bookedshippinglineaddress
+LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
 WHERE t.js_pk = @id;
 
 SELECT t.*

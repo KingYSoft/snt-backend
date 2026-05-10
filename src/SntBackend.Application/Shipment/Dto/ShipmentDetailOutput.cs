@@ -14,6 +14,11 @@ namespace SntBackend.Application.Shipment.Dto
         public List<ShipmentDetailContainerDto> containers_list { get; set; } = new();
         public List<JobPackLinesDtoOutput> loose_list { get; set; } = new();
         public JobDocumentDataDtoOutput doc_data { get; set; }
+        
+        /// <summary>
+        /// Carrier 名称（从 OrgHeader.oh_fullname 获取）
+        /// </summary>
+        public string carrier_name { get; set; }
     }
 
     public class ShipmentDetailContainerDto : JobContainerDtoOutput

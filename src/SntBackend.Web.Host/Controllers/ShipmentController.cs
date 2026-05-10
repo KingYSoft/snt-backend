@@ -5,6 +5,7 @@ using SntBackend.Application.Shipment.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Threading.Tasks;
 using Facade.AspNetCore.Mvc.Authorization;
+using System;
 
 namespace SntBackend.Web.Host.Controllers;
 
@@ -40,11 +41,18 @@ public class ShipmentController : SntBackendControllerBase
     [Route("detail")]
     public async Task<JsonResponse<ShipmentDetailOutput>> Detail([FromQuery] string id)
     {
-        var result = await _shipmentApplication.Detail(id);
-        if (result == null)
+        try
         {
-            return new JsonResponse<ShipmentDetailOutput>(false, "Shipment not found.");
+            var result = await _shipmentApplication.Detail(id);
+            if (result == null)
+            {
+                return new JsonResponse<ShipmentDetailOutput>(false, "Shipment not found.");
+            }
+            return new JsonResponse<ShipmentDetailOutput> { Data = result };
         }
-        return new JsonResponse<ShipmentDetailOutput> { Data = result };
+        catch (Exception ex)
+        {
+            return new JsonResponse<ShipmentDetailOutput>(false, $"错误: {ex.Message}\n\n堆栈: {ex.StackTrace}");
+        }
     }
 }

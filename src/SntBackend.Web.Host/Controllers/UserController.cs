@@ -41,7 +41,7 @@ namespace SntBackend.Web.Host.Controllers
                 {
                     Data = new UserLoginOutput
                     {
-                        access_token = accessToken,
+                        accessToken = accessToken,
                         full_name = input.email,
                         email_address = input.email,
                         login_name = input.email

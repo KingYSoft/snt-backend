@@ -61,4 +61,52 @@ public class BillingController : SntBackendControllerBase
         }
         return new JsonResponse<AccTransactionHeaderDtoOutput> { Data = result };
     }
+
+    /// <summary>
+    /// 按 shipment + AR/AP 分页查询费用行（JobCharge）
+    /// </summary>
+    [HttpPost]
+    [Route("charge-line")]
+    [NoToken]
+    public async Task<JsonResponse<BillingChargeLineOutput>> QueryChargeLine([FromBody] BillingChargeLineInput input)
+    {
+        var result = await _billingApplication.QueryChargeLine(input);
+        return new JsonResponse<BillingChargeLineOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 按 shipment + AR/AP 分页查询发票头（snt 无草稿，统一返回已过账）
+    /// </summary>
+    [HttpPost]
+    [Route("draft-page")]
+    [NoToken]
+    public async Task<JsonResponse<BillingDraftPageOutput>> QueryDraftPage([FromBody] BillingDraftPageInput input)
+    {
+        var result = await _billingApplication.QueryDraftPage(input);
+        return new JsonResponse<BillingDraftPageOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 账单汇总（毛利率、AR、AP、利润）
+    /// </summary>
+    [HttpGet]
+    [Route("summary")]
+    [NoToken]
+    public async Task<JsonResponse<BillingSummaryDto>> GetBillingSummary([FromQuery] string shpPk)
+    {
+        var result = await _billingApplication.GetBillingSummary(shpPk);
+        return new JsonResponse<BillingSummaryDto> { Data = result };
+    }
+
+    /// <summary>
+    /// 按发票号查关联的费用明细
+    /// </summary>
+    [HttpGet]
+    [Route("charges-by-invoice")]
+    [NoToken]
+    public async Task<JsonResponse<QueryChargesByInvoiceOutput>> QueryChargesByInvoiceNo([FromQuery] string invoiceNo)
+    {
+        var result = await _billingApplication.QueryChargesByInvoiceNo(invoiceNo);
+        return new JsonResponse<QueryChargesByInvoiceOutput> { Data = result };
+    }
 }

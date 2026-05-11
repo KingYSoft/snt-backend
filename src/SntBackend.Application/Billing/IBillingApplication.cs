@@ -20,5 +20,10 @@ namespace SntBackend.Application.Billing
         Task<List<AccTransactionLinesDtoOutput>> QueryMatchTransactionLines(MatchTransactionLinesInput input);
         Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk);
         Task<List<AccBankAccountDtoOutput>> QueryWriteOffBank(WriteOffBankInput input);
+
+        Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input);
+        Task<BillingDraftPageOutput> QueryDraftPage(BillingDraftPageInput input);
+        Task<BillingSummaryDto> GetBillingSummary(string shpPk);
+        Task<QueryChargesByInvoiceOutput> QueryChargesByInvoiceNo(string invoiceNo);
     }
 }

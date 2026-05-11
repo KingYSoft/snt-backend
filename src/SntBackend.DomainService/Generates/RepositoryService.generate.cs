@@ -41,6 +41,9 @@ namespace SntBackend.DomainService.Repositories
         public IGlbStaffRepository GlbStaffRepository => IocManager.Instance.Resolve<IGlbStaffRepository>();
         /// <summary>
         /// </summary>
+        public IJobChargeRepository JobChargeRepository => IocManager.Instance.Resolve<IJobChargeRepository>();
+        /// <summary>
+        /// </summary>
         public IJobConShipLinkRepository JobConShipLinkRepository => IocManager.Instance.Resolve<IJobConShipLinkRepository>();
         /// <summary>
         /// </summary>

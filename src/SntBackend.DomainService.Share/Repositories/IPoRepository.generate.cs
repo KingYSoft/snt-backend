@@ -75,6 +75,14 @@ namespace SntBackend.DomainService.Share.Repositories
 
     /// <summary>
     /// 
+    /// IJobChargeRepository
+    /// </summary>
+    public partial interface IJobChargeRepository : IRepository<JobCharge, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
+    /// <summary>
+    /// 
     /// IJobConShipLinkRepository
     /// </summary>
     public partial interface IJobConShipLinkRepository : IRepository<JobConShipLink, string>, Abp.Dependency.ITransientDependency

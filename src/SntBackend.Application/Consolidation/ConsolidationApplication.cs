@@ -5,6 +5,8 @@ using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace SntBackend.Application.Consolidation
@@ -136,6 +138,51 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             }
 
             return output;
+        }
+
+        public async Task<byte[]> Export(ConsolidationTblInput input)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = TblBuildWhere(input.filters, dp, out var joinShipment);
+
+            var shipmentJoin = joinShipment
+                ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
+                : "";
+            var distinct = joinShipment ? "DISTINCT" : "";
+
+            var sql = @$"
+SELECT {distinct} t.*
+FROM JobConsol t
+{shipmentJoin}
+WHERE 1 = 1
+    AND t.jk_iscancelled = 0
+    {whereIf}
+ORDER BY t.jk_pk desc
+";
+            var list = (await _appSqlServerRepository.QueryAsync<JobConsolDtoOutput>(sql, dp)).ToList();
+
+            var props = typeof(JobConsolDtoOutput).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var sb = new StringBuilder();
+
+            // header
+            sb.AppendLine(string.Join(",", props.Select(p => p.Name)));
+
+            // rows
+            foreach (var item in list)
+            {
+                var values = props.Select(p =>
+                {
+                    var val = p.GetValue(item);
+                    if (val == null) return "";
+                    var str = val is DateTime dt ? dt.ToString("yyyy-MM-dd HH:mm:ss") : val.ToString();
+                    return str.Contains(',') || str.Contains('"') || str.Contains('\n')
+                        ? $"\"{str.Replace("\"", "\"\"")}\""
+                        : str;
+                });
+                sb.AppendLine(string.Join(",", values));
+            }
+
+            return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
         }
 
         public async Task<ConsolidationDetailOutput> Detail(string id)

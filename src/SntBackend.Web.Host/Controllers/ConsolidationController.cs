@@ -34,6 +34,17 @@ public class ConsolidationController : SntBackendControllerBase
     }
 
     /// <summary>
+    /// 导出CSV
+    /// </summary>
+    [HttpPost]
+    [Route("export")]
+    public async Task<IActionResult> Export([FromBody] ConsolidationTblInput input)
+    {
+        var bytes = await _consolidationApplication.Export(input);
+        return File(bytes, "text/csv", "consolidation_export.csv");
+    }
+
+    /// <summary>
     /// 查询详情
     /// </summary>
     [HttpGet]

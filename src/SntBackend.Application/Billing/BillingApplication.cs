@@ -94,8 +94,9 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*
+SELECT t.*, o.oh_fullname AS ah_oh_name
 FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE 1 = 1
     AND t.ah_ledger = @ledger
     AND t.ah_iscancelled = 0

@@ -144,7 +144,28 @@ FROM JobDocAddress t
 WHERE t.e2_parentid = @id
     AND t.e2_addresstype IN ('CEC', 'CIC');
 
-SELECT o.*
+SELECT o.oa_pk, o.oa_isvalid, o.oa_isactive, o.oa_code, o.oa_companynameoverride,
+       o.oa_address1, o.oa_address2, o.oa_city, o.oa_state, o.oa_postcode,
+       o.oa_rn_nkcountrycode, o.oa_validationstatus, o.oa_addressmap,
+       o.oa_phone, o.oa_fax, o.oa_mobile, o.oa_email,
+       o.oa_usecumulativefreewaitingtime,
+       o.oa_pickupfromtimeonly, o.oa_pickuptotimeonly,
+       o.oa_deliverfromtimeonly, o.oa_delivertotimeonly,
+       o.oa_donotattendfrom, o.oa_donotattendto,
+       o.oa_dockleveler, o.oa_forklift, o.oa_palletjack,
+       o.oa_containerhandling, o.oa_accesspoint, o.oa_labourrequired,
+       o.oa_communicationrequired, o.oa_dock_height,
+       o.oa_fclequipmentneeded, o.oa_lclequipmentneeded, o.oa_airequipmentneeded,
+       o.oa_rl_nkrelatedportcode, o.oa_oh, o.oa_deliveryroute, o.oa_deliveryroutesequence,
+       o.oa_otherwarehousefacilities, o.oa_loadingunloadingconstraints, o.oa_authoritytoleave,
+       o.oa_groupnumber, o.oa_additionaladdressinformation,
+       CAST(o.oa_geofencepolygon AS NVARCHAR(MAX)) AS oa_geofencepolygon,
+       o.oa_suppressaddressvalidationerror, o.oa_verifiescontainergrossweight,
+       o.oa_systemcreatetimeutc, o.oa_systemcreateuser,
+       o.oa_systemlastedittimeutc, o.oa_systemlastedituser,
+       o.oa_language,
+       CAST(o.oa_geolocation AS NVARCHAR(MAX)) AS oa_geolocation,
+       o.oa_jobloadingduration, o.oa_autoversion
 FROM OrgAddress o
 WHERE o.OA_PK IN (
     SELECT t.e2_oa_address

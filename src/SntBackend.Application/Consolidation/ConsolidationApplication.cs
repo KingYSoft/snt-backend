@@ -118,18 +118,40 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 
         public async Task<ConsolidationDetailOutput> Detail(string id)
         {
-            var dp = new DynamicParameters();
-            dp.Add("id", id);
+            try
+            {
+                var dp = new DynamicParameters();
+                dp.Add("id", id);
 
-            var sql = @"
+                var sql = @"
 SELECT t.*
 FROM JobConsol t
 WHERE t.jk_pk = @id;
 
-SELECT t.*
+SELECT t.e2_pk, t.e2_isvalid, t.e2_addresstype, t.e2_isresidential, t.e2_addresssequence,
+       t.e2_oa_address, t.e2_contact, t.e2_addressoverride,
+       t.e2_address1, t.e2_address2, t.e2_city, t.e2_postcode, t.e2_state,
+       t.e2_rn_nkcountrycode, t.e2_phone, t.e2_mobile, t.e2_fax,
+       t.e2_govregnum, t.e2_govregnumtype, t.e2_email,
+       t.e2_parentid, t.e2_parenttablecode, t.e2_validationstatus, t.e2_addressmap,
+       t.e2_suppressaddressvalidationerror,
+       t.e2_systemcreatetimeutc, t.e2_systemcreateuser,
+       t.e2_systemlastedittimeutc, t.e2_systemlastedituser,
+       CAST(t.e2_geolocation AS NVARCHAR(MAX)) AS e2_geolocation,
+       t.e2_additionaladdressinformation, t.e2_companyname,
+       t.e2_screeningstatus, t.e2_autoversion
 FROM JobDocAddress t
 WHERE t.e2_parentid = @id
     AND t.e2_addresstype IN ('CEC', 'CIC');
+
+SELECT o.*
+FROM OrgAddress o
+WHERE o.OA_PK IN (
+    SELECT t.e2_oa_address
+    FROM JobDocAddress t
+    WHERE t.e2_parentid = @id
+        AND t.e2_addresstype IN ('CEC', 'CIC')
+);
 
 SELECT t.*
 FROM JobConsolTransport t
@@ -145,25 +167,45 @@ WHERE l.jn_jk = @id;
 SELECT t.*
 FROM JobContainer t
 WHERE t.jc_jk = @id
-    AND t.jc_isvalid = 1
+    AND t.jc_isvalid = 0
 ";
 
-            using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
+                using (var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp))
+                {
+                    var details = (await multi.ReadAsync<ConsolidationDetailOutput>()).ToList();
+                    var detail = details.FirstOrDefault();
+                    if (detail == null) return null;
 
-            var detail = await multi.ReadFirstOrDefaultAsync<ConsolidationDetailOutput>();
-            if (detail == null) return null;
+                    var agents = (await multi.ReadAsync<ConsolidationAgentOutput>()).ToList();
+                    var orgAddresses = (await multi.ReadAsync<OrgAddressDtoOutput>()).ToList();
 
-            var agents = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
-            detail.local_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CEC");
-            detail.overseas_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CIC");
+                    detail.local_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CEC");
+                    detail.overseas_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CIC");
 
-            detail.transport_list = (await multi.ReadAsync<JobConsolTransportDtoOutput>()).ToList();
+                    if (detail.local_agent != null)
+                        detail.local_agent.org_address = orgAddresses.FirstOrDefault(o => o.oa_pk == detail.local_agent.e2_oa_address);
+                    if (detail.overseas_agent != null)
+                        detail.overseas_agent.org_address = orgAddresses.FirstOrDefault(o => o.oa_pk == detail.overseas_agent.e2_oa_address);
 
-            detail.shps = (await multi.ReadAsync<JobShipmentDtoOutput>()).ToList();
+                    if (!multi.IsConsumed)
+                        detail.transport_list =
+                            (await multi.ReadAsync<JobConsolTransportDtoOutput>()).ToList();
 
-            detail.containers = (await multi.ReadAsync<JobContainerDtoOutput>()).ToList();
+                    if (!multi.IsConsumed)
+                        detail.shps = (await multi.ReadAsync<JobShipmentDtoOutput>()).ToList();
 
-            return detail;
+                    if (!multi.IsConsumed)
+                        detail.containers = (await multi.ReadAsync<JobContainerDtoOutput>()).ToList();
+
+                    return detail;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ConsolidationDetail Error] {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+                throw;
+            }
         }
     }
 }

@@ -18,9 +18,19 @@ namespace SntBackend.Application.Consolidation
             _appSqlServerRepository = appSqlServerRepository;
         }
 
-        private static string TblBuildWhere(List<ConsolidationTblFilterItem> filters, DynamicParameters dp)
+        private static bool IsShipmentField(string key) => key.StartsWith("js_");
+
+        private static string GetColumnExpr(string key)
+        {
+            if (IsShipmentField(key))
+                return $"s.{key}";
+            return $"t.{key}";
+        }
+
+        private static string TblBuildWhere(List<ConsolidationTblFilterItem> filters, DynamicParameters dp, out bool joinShipment)
         {
             var parts = new List<string>();
+            joinShipment = false;
 
             static string MapOp(string op)
             {
@@ -44,18 +54,23 @@ namespace SntBackend.Application.Consolidation
                     continue;
                 }
 
+                if (IsShipmentField(item.key))
+                    joinShipment = true;
+
+                var col = GetColumnExpr(item.key);
+
                 if (item.op == "between")
                 {
                     if (!string.IsNullOrWhiteSpace(item.start))
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} >= {paramNameStart} ");
+                        parts.Add($" AND {col} >= {paramNameStart} ");
                         dp.Add(paramNameStart, item.start);
                     }
                     if (!string.IsNullOrWhiteSpace(item.end))
                     {
                         var paramNameEnd = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} <= {paramNameEnd}");
+                        parts.Add($" AND {col} <= {paramNameEnd}");
                         dp.Add(paramNameEnd, item.end);
                     }
                 }
@@ -68,7 +83,7 @@ namespace SntBackend.Application.Consolidation
                     var val = item.val.Trim();
                     var paramName = $"@p{dp.ParameterNames.Count()}";
                     var isContain = item.op == "Contain" || item.op == "Not Contain";
-                    parts.Add($" AND t.{item.key} {MapOp(item.op)} {paramName}");
+                    parts.Add($" AND {col} {MapOp(item.op)} {paramName}");
                     dp.Add(paramName, isContain ? $"%{val}%" : val);
                 }
             }
@@ -80,18 +95,25 @@ namespace SntBackend.Application.Consolidation
         {
             var output = new ConsolidationTblOutput();
             var dp = new DynamicParameters();
-            var whereIf = TblBuildWhere(input.filters, dp);
+            var whereIf = TblBuildWhere(input.filters, dp, out var joinShipment);
+
+            var shipmentJoin = joinShipment
+                ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
+                : "";
+            var distinct = joinShipment ? "DISTINCT" : "";
 
             var totalSql = @$"
-SELECT COUNT(*)
+SELECT COUNT({distinct} t.jk_pk)
 FROM JobConsol t
+{shipmentJoin}
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*
+SELECT {distinct} t.*
 FROM JobConsol t
+{shipmentJoin}
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}

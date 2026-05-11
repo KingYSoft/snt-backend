@@ -94,7 +94,7 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*, o.oh_fullname AS ah_oh_name
+SELECT t.*, o.oh_fullname AS ah_oh
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE 1 = 1
@@ -128,8 +128,9 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             dp.Add("id", id);
 
             var sql = @"
-SELECT t.*
+SELECT t.*, o.oh_fullname AS ah_oh
 FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_pk = @id
 ";
             return await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);

@@ -1835,6 +1835,413 @@ namespace SntBackend.DomainService.Share.Po
     }
 
     /// <summary>
+    /// JobCharge
+    /// </summary>
+    public partial class JobCharge : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_isvalid { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_jh { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_ge { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_gb { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_jh_internaljob { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_ge_internaldept { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_gb_internalbranch { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_linecfx { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_ac { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_desc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_oh_costaccount { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_costrated { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_costratingoverride { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_oscostamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_agentdeclaredcostamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_localcostamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_rx_nkcostcurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_oscostexrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_at_costgstrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_oscostgstamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_a9_costvatclass { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_aw_costwhtrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_oscostwhtamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_estimatedcost { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_aplinepostingstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_costreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_apinvoicenum { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_apinvoicedate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_apnumberofsupportingdocuments { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_paymentdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_paymenttype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_chequeno { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_ak { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_ab { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_al_apline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_declaredoscostamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_proformacost { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_oh_sellaccount { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_oa_sellinvoiceaddress { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_oc_sellinvoicecontact { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_rx_nksellcurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_ossellexrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_ossellamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_a9_sellvatclass { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_agentdeclaredsellamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_localsellamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_sellrated { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_sellratingoverride { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_at_sellgstrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_aw_sellwhtrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_ossellwhtamt { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_sellreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_al_arline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_al_cfxline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_estimatedrevenue { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_isincludedinprofitshare { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_chargetype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_marginpercentage { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_arnumberofsupportingdocuments { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_invoicetype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_proformarevenue { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_preventinvoiceprintgrouping { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_displaysequence { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_arlinepostingstatus { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_orderreference { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_op_product { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal jr_productquantity { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_e6 { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_gc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_costgovtchargecode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_e6_gatewaysellheader { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_jr_revenueline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_linetype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_rx_nksellinvoicecurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_sellgovtchargecode { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_costtaxdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_selltaxdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_iscosttaxamountoverridden { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_apdocumentreceiveddate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_costplaceofsupply { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_costplaceofsupplytype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_sellplaceofsupply { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_sellplaceofsupplytype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_costsupplytype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_sellsupplytype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? jr_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_systemlastedituser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_cal_apline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_cal_arline { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_gb_costtaxbranch { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_gb_selltaxbranch { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int? jr_isapcashadvance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int? jr_isarcashadvance { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int? jr_isspotcost { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_costratingoverridecomment { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_sellratingoverridecomment { get; set; }
+    }
+
+    /// <summary>
     /// JobConShipLink
     /// </summary>
     public partial class JobConShipLink : Entity<string>

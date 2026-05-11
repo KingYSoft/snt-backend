@@ -100,6 +100,17 @@ namespace SntBackend.SqlServer.EntityFrameworkCore.Repositories
 
     /// <summary>
     /// 
+    /// JobChargeRepository
+    /// </summary>
+    public partial class JobChargeRepository : SqlServerEfCoreRepositoryBase<JobCharge, string>, IJobChargeRepository
+    {
+        public JobChargeRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
+    /// <summary>
+    /// 
     /// JobConShipLinkRepository
     /// </summary>
     public partial class JobConShipLinkRepository : SqlServerEfCoreRepositoryBase<JobConShipLink, string>, IJobConShipLinkRepository

@@ -46,17 +46,17 @@ namespace SntBackend.Application.Shipment
 
                 if (item.op == "between")
                 {
-                    if (!string.IsNullOrWhiteSpace(item.start))
+                    if (!string.IsNullOrWhiteSpace(item.start) && DateTime.TryParse(item.start, out var startDate))
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
                         parts.Add($" AND t.{item.key} >= {paramNameStart} ");
-                        dp.Add(paramNameStart, item.start);
+                        dp.Add(paramNameStart, startDate);
                     }
-                    if (!string.IsNullOrWhiteSpace(item.end))
+                    if (!string.IsNullOrWhiteSpace(item.end) && DateTime.TryParse(item.end, out var endDate))
                     {
                         var paramNameEnd = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} <= {paramNameEnd}");
-                        dp.Add(paramNameEnd, item.end);
+                        parts.Add($" AND t.{item.key} < {paramNameEnd}");
+                        dp.Add(paramNameEnd, endDate.AddDays(1));
                     }
                 }
                 else
@@ -86,16 +86,14 @@ namespace SntBackend.Application.Shipment
 SELECT COUNT(*)
 FROM JobShipment t
 WHERE 1 = 1
-    AND t.js_iscancelled = 0
-    AND t.js_isforwardregistered = 1
+    AND t.js_iscancelled = 0 
     {whereIf}
 ";
             var pageSql = @$"
 SELECT t.*
 FROM JobShipment t
 WHERE 1 = 1
-    AND t.js_iscancelled = 0
-    AND t.js_isforwardregistered = 1
+    AND t.js_iscancelled = 0 
     {whereIf}
 ORDER BY t.js_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY

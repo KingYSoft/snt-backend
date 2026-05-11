@@ -8,5 +8,6 @@ namespace SntBackend.Application.Consolidation
     {
         Task<ConsolidationTblOutput> Tbl(ConsolidationTblInput input);
         Task<ConsolidationDetailOutput> Detail(string id);
+        Task<byte[]> Export(ConsolidationTblInput input);
     }
 }

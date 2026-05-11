@@ -27,10 +27,22 @@ public class ConsolidationController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("tbl")]
+    [NoToken]
     public async Task<JsonResponse<ConsolidationTblOutput>> Tbl([FromBody] ConsolidationTblInput input)
     {
         var result = await _consolidationApplication.Tbl(input);
         return new JsonResponse<ConsolidationTblOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 导出CSV
+    /// </summary>
+    [HttpPost]
+    [Route("export")]
+    public async Task<IActionResult> Export([FromBody] ConsolidationTblInput input)
+    {
+        var bytes = await _consolidationApplication.Export(input);
+        return File(bytes, "text/csv", "consolidation_export.csv");
     }
 
     /// <summary>

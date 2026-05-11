@@ -94,7 +94,7 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*, o.oh_fullname AS ah_oh
+SELECT t.*, o.oh_fullname
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE 1 = 1
@@ -128,7 +128,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             dp.Add("id", id);
 
             var sql = @"
-SELECT t.*, o.oh_fullname AS ah_oh
+SELECT t.*, o.oh_fullname
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_pk = @id
@@ -674,13 +674,15 @@ SELECT
     t.ah_ledger AS Ledger,
     t.ah_transactionnum AS MatchNumber,
     t.ah_oh AS BillingParty,
+    o.oh_fullname AS BillingPartyName,
     t.ah_rx_nktransactioncurrency AS Currency,
     t.ah_invoiceamount AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
     t.ah_desc AS Description
 FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_iscancelled = 0
-    AND t.ah_transactiontype IN ('REC', 'PAY') 
+    AND t.ah_transactiontype IN ('REC', 'PAY')
     {whereIf}
 ORDER BY t.ah_invoicedate DESC, t.ah_pk DESC
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -1060,6 +1062,31 @@ ORDER BY jr.jr_displaysequence, jr.jr_pk
                 Charges = charges,
                 BillingParty = billingParty
             };
+        }
+
+        public async Task<QueryOrgAddressOutput> QueryOrgAddress(QueryOrgAddressInput input)
+        {
+            var output = new QueryOrgAddressOutput();
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(input.Query))
+            {
+                whereIf += " AND (UPPER(o.OH_FullName) LIKE UPPER(@queryLike) OR UPPER(o.OH_Code) LIKE UPPER(@queryLike)) ";
+                dp.Add("queryLike", $"%{input.Query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT DISTINCT h.AH_OH, o.OH_FullName, o.OH_Code
+FROM [dbo].[AccTransactionHeader] AS h
+INNER JOIN [dbo].[OrgHeader] AS o ON o.OH_PK = h.AH_OH
+WHERE h.AH_FullyPaidDate IS NULL
+    AND h.AH_TransactionType = 'INV'
+    {whereIf}
+ORDER BY h.AH_SystemCreateTimeUtc DESC
+";
+            output.List = (await _appSqlServerRepository.QueryAsync<QueryOrgAddressDto>(sql, dp)).ToList();
+            return output;
         }
     }
 }

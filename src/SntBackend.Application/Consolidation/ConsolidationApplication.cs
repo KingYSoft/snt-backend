@@ -5,6 +5,8 @@ using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace SntBackend.Application.Consolidation
@@ -18,9 +20,19 @@ namespace SntBackend.Application.Consolidation
             _appSqlServerRepository = appSqlServerRepository;
         }
 
-        private static string TblBuildWhere(List<ConsolidationTblFilterItem> filters, DynamicParameters dp)
+        private static bool IsShipmentField(string key) => key.StartsWith("js_");
+
+        private static string GetColumnExpr(string key)
+        {
+            if (IsShipmentField(key))
+                return $"s.{key}";
+            return $"t.{key}";
+        }
+
+        private static string TblBuildWhere(List<ConsolidationTblFilterItem> filters, DynamicParameters dp, out bool joinShipment)
         {
             var parts = new List<string>();
+            joinShipment = false;
 
             static string MapOp(string op)
             {
@@ -44,18 +56,23 @@ namespace SntBackend.Application.Consolidation
                     continue;
                 }
 
+                if (IsShipmentField(item.key))
+                    joinShipment = true;
+
+                var col = GetColumnExpr(item.key);
+
                 if (item.op == "between")
                 {
                     if (!string.IsNullOrWhiteSpace(item.start))
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} >= {paramNameStart} ");
+                        parts.Add($" AND {col} >= {paramNameStart} ");
                         dp.Add(paramNameStart, item.start);
                     }
                     if (!string.IsNullOrWhiteSpace(item.end))
                     {
                         var paramNameEnd = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} <= {paramNameEnd}");
+                        parts.Add($" AND {col} <= {paramNameEnd}");
                         dp.Add(paramNameEnd, item.end);
                     }
                 }
@@ -68,7 +85,7 @@ namespace SntBackend.Application.Consolidation
                     var val = item.val.Trim();
                     var paramName = $"@p{dp.ParameterNames.Count()}";
                     var isContain = item.op == "Contain" || item.op == "Not Contain";
-                    parts.Add($" AND t.{item.key} {MapOp(item.op)} {paramName}");
+                    parts.Add($" AND {col} {MapOp(item.op)} {paramName}");
                     dp.Add(paramName, isContain ? $"%{val}%" : val);
                 }
             }
@@ -80,18 +97,25 @@ namespace SntBackend.Application.Consolidation
         {
             var output = new ConsolidationTblOutput();
             var dp = new DynamicParameters();
-            var whereIf = TblBuildWhere(input.filters, dp);
+            var whereIf = TblBuildWhere(input.filters, dp, out var joinShipment);
+
+            var shipmentJoin = joinShipment
+                ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
+                : "";
+            var distinct = joinShipment ? "DISTINCT" : "";
 
             var totalSql = @$"
-SELECT COUNT(*)
+SELECT COUNT({distinct} t.jk_pk)
 FROM JobConsol t
+{shipmentJoin}
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*
+SELECT {distinct} t.*
 FROM JobConsol t
+{shipmentJoin}
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
@@ -114,6 +138,51 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             }
 
             return output;
+        }
+
+        public async Task<byte[]> Export(ConsolidationTblInput input)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = TblBuildWhere(input.filters, dp, out var joinShipment);
+
+            var shipmentJoin = joinShipment
+                ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
+                : "";
+            var distinct = joinShipment ? "DISTINCT" : "";
+
+            var sql = @$"
+SELECT {distinct} t.*
+FROM JobConsol t
+{shipmentJoin}
+WHERE 1 = 1
+    AND t.jk_iscancelled = 0
+    {whereIf}
+ORDER BY t.jk_pk desc
+";
+            var list = (await _appSqlServerRepository.QueryAsync<JobConsolDtoOutput>(sql, dp)).ToList();
+
+            var props = typeof(JobConsolDtoOutput).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var sb = new StringBuilder();
+
+            // header
+            sb.AppendLine(string.Join(",", props.Select(p => p.Name)));
+
+            // rows
+            foreach (var item in list)
+            {
+                var values = props.Select(p =>
+                {
+                    var val = p.GetValue(item);
+                    if (val == null) return "";
+                    var str = val is DateTime dt ? dt.ToString("yyyy-MM-dd HH:mm:ss") : val.ToString();
+                    return str.Contains(',') || str.Contains('"') || str.Contains('\n')
+                        ? $"\"{str.Replace("\"", "\"\"")}\""
+                        : str;
+                });
+                sb.AppendLine(string.Join(",", values));
+            }
+
+            return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
         }
 
         public async Task<ConsolidationDetailOutput> Detail(string id)
@@ -144,7 +213,28 @@ FROM JobDocAddress t
 WHERE t.e2_parentid = @id
     AND t.e2_addresstype IN ('CEC', 'CIC');
 
-SELECT o.*
+SELECT o.oa_pk, o.oa_isvalid, o.oa_isactive, o.oa_code, o.oa_companynameoverride,
+       o.oa_address1, o.oa_address2, o.oa_city, o.oa_state, o.oa_postcode,
+       o.oa_rn_nkcountrycode, o.oa_validationstatus, o.oa_addressmap,
+       o.oa_phone, o.oa_fax, o.oa_mobile, o.oa_email,
+       o.oa_usecumulativefreewaitingtime,
+       o.oa_pickupfromtimeonly, o.oa_pickuptotimeonly,
+       o.oa_deliverfromtimeonly, o.oa_delivertotimeonly,
+       o.oa_donotattendfrom, o.oa_donotattendto,
+       o.oa_dockleveler, o.oa_forklift, o.oa_palletjack,
+       o.oa_containerhandling, o.oa_accesspoint, o.oa_labourrequired,
+       o.oa_communicationrequired, o.oa_dock_height,
+       o.oa_fclequipmentneeded, o.oa_lclequipmentneeded, o.oa_airequipmentneeded,
+       o.oa_rl_nkrelatedportcode, o.oa_oh, o.oa_deliveryroute, o.oa_deliveryroutesequence,
+       o.oa_otherwarehousefacilities, o.oa_loadingunloadingconstraints, o.oa_authoritytoleave,
+       o.oa_groupnumber, o.oa_additionaladdressinformation,
+       CAST(o.oa_geofencepolygon AS NVARCHAR(MAX)) AS oa_geofencepolygon,
+       o.oa_suppressaddressvalidationerror, o.oa_verifiescontainergrossweight,
+       o.oa_systemcreatetimeutc, o.oa_systemcreateuser,
+       o.oa_systemlastedittimeutc, o.oa_systemlastedituser,
+       o.oa_language,
+       CAST(o.oa_geolocation AS NVARCHAR(MAX)) AS oa_geolocation,
+       o.oa_jobloadingduration, o.oa_autoversion
 FROM OrgAddress o
 WHERE o.OA_PK IN (
     SELECT t.e2_oa_address

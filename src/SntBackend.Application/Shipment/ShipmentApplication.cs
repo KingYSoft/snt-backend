@@ -122,16 +122,40 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             dp.Add("id", id);
 
             var sql = @"
-SELECT t.*
+SELECT t.*, 
+    oh.oh_fullname as carrier_name,
+    (SELECT oh_fullname FROM OrgHeader WHERE OH_PK = t.js_oh_handledonbehalfofforwarder) as booking_party_name
 FROM JobShipment t
+LEFT JOIN OrgAddress oa ON oa.oa_pk = t.js_oa_bookedshippinglineaddress
+LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
 WHERE t.js_pk = @id;
 
-SELECT t.*
+SELECT 
+    t.e2_pk, t.e2_isvalid, t.e2_parentid, t.e2_parenttablecode, t.e2_addresstype, t.e2_oa_address,
+    t.e2_companyname, t.e2_address1, t.e2_address2, t.e2_city, t.e2_state,
+    t.e2_postcode, t.e2_rn_nkcountrycode, t.e2_phone, t.e2_fax, t.e2_email,
+    t.e2_systemcreatetimeutc, t.e2_systemcreateuser, t.e2_systemlastedittimeutc, t.e2_systemlastedituser,
+    CAST(t.e2_geolocation AS VARCHAR(MAX)) as e2_geolocation,
+    t.e2_additionaladdressinformation
 FROM JobDocAddress t
 WHERE t.e2_parentid = @id
-    AND t.e2_parenttablecode = 'SHP';
+    AND t.e2_parenttablecode = 'JS';
 
-SELECT t.*
+SELECT 
+    oa.oa_pk, oa.oa_isvalid, oa.oa_isactive, oa.oa_code,
+    oa.oa_companynameoverride, oa.oa_address1, oa.oa_address2, 
+    oa.oa_city, oa.oa_state, oa.oa_postcode, oa.oa_rn_nkcountrycode,
+    oa.oa_phone, oa.oa_fax, oa.oa_mobile, oa.oa_email,
+    oh.oh_fullname as oh_fullname
+FROM JobDocAddress jda
+INNER JOIN OrgAddress oa ON oa.oa_pk = jda.e2_oa_address
+LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+WHERE jda.e2_parentid = @id
+    AND jda.e2_parenttablecode = 'JS'
+    AND jda.e2_addresstype IN ('CRD', 'CEG');
+
+SELECT t.*,
+    (SELECT RC_Code FROM RefContainer WHERE RC_PK = t.jc_rc) as rc_code
 FROM JobContainer t
 WHERE t.jc_js_fclbookingonlylink = @id;
 
@@ -151,13 +175,26 @@ WHERE t.jdd_parentid = @id
             if (detail == null) return null;
 
             var addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
+            var orgAddrs = (await multi.ReadAsync<OrgAddressWithHeaderDtoOutput>()).ToList();
             var containers = (await multi.ReadAsync<ShipmentDetailContainerDto>()).ToList();
             var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
             var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
 
-            // 地址映射
-            detail.shipper = addrs.FirstOrDefault(a => a.e2_addresstype == "SHIPPER");
-            detail.consignee = addrs.FirstOrDefault(a => a.e2_addresstype == "CONSIGNEE");
+            // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
+            var shipperTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CRD");
+            if (shipperTemp != null && !string.IsNullOrEmpty(shipperTemp.e2_oa_address))
+            {
+                detail.shipperTemp = shipperTemp;
+                detail.shipper = orgAddrs.FirstOrDefault(a => a.oa_pk == shipperTemp.e2_oa_address);
+            }
+
+            var consigneeTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CEG");
+            if (consigneeTemp != null && !string.IsNullOrEmpty(consigneeTemp.e2_oa_address))
+            {
+                detail.consigneeTemp = consigneeTemp;
+                detail.consignee = orgAddrs.FirstOrDefault(a => a.oa_pk == consigneeTemp.e2_oa_address);
+            }
+
             detail.notify_party = addrs.FirstOrDefault(a => a.e2_addresstype == "NOTIFY_PARTY");
             detail.pickup = addrs.FirstOrDefault(a => a.e2_addresstype == "PICKUP");
             detail.delivery = addrs.FirstOrDefault(a => a.e2_addresstype == "DELIVERY");

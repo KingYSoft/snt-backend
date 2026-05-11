@@ -99,6 +99,7 @@ public class MatchTransactionController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("query-org-address")]
+    [NoToken]
     public async Task<JsonResponse<QueryOrgAddressOutput>> QueryOrgAddress([FromQuery] QueryOrgAddressInput input)
     {
         var result = await _billingApplication.QueryOrgAddress(input);

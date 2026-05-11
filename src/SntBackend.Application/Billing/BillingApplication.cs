@@ -1073,7 +1073,7 @@ ORDER BY jr.jr_displaysequence, jr.jr_pk
             if (!string.IsNullOrWhiteSpace(input.Query))
             {
                 whereIf += " AND (UPPER(o.OH_FullName) LIKE UPPER(@queryLike) OR UPPER(o.OH_Code) LIKE UPPER(@queryLike)) ";
-                dp.Add("queryLike", $"%{input.Query.Trim()}%");
+                dp.Add("queryLike", $"{input.Query.Trim()}%");
             }
 
             var sql = $@"
@@ -1083,7 +1083,6 @@ INNER JOIN [dbo].[OrgHeader] AS o ON o.OH_PK = h.AH_OH
 WHERE h.AH_FullyPaidDate IS NULL
     AND h.AH_TransactionType = 'INV'
     {whereIf}
-ORDER BY h.AH_SystemCreateTimeUtc DESC
 ";
             output.List = (await _appSqlServerRepository.QueryAsync<QueryOrgAddressDto>(sql, dp)).ToList();
             return output;

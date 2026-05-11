@@ -87,10 +87,21 @@ public class MatchTransactionController : SntBackendControllerBase
     /// 查询核销可用银行账户
     /// </summary>
     [HttpPost]
-    [Route("get-writeOff-bank")] 
+    [Route("get-writeOff-bank")]
     public async Task<JsonResponse<List<AccBankAccountDtoOutput>>> GetWriteOffBank([FromBody] WriteOffBankInput input)
     {
         var result = await _billingApplication.QueryWriteOffBank(input);
         return new JsonResponse<List<AccBankAccountDtoOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// 查询结算公司（未结发票关联的公司）
+    /// </summary>
+    [HttpGet]
+    [Route("query-org-address")]
+    public async Task<JsonResponse<QueryOrgAddressOutput>> QueryOrgAddress([FromQuery] QueryOrgAddressInput input)
+    {
+        var result = await _billingApplication.QueryOrgAddress(input);
+        return new JsonResponse<QueryOrgAddressOutput> { Data = result };
     }
 }

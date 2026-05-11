@@ -27,6 +27,7 @@ public class ConsolidationController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("tbl")]
+    [NoToken]
     public async Task<JsonResponse<ConsolidationTblOutput>> Tbl([FromBody] ConsolidationTblInput input)
     {
         var result = await _consolidationApplication.Tbl(input);

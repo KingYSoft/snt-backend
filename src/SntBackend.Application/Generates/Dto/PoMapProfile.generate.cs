@@ -250,4 +250,16 @@ namespace SntBackend.Application.Po.Dto
             CreateMap<OrgHeader, OrgHeaderDtoOutput>();
         }
     }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
+    /// RefCurrencyMapProfile
+    /// </summary>
+    public partial class RefCurrencyMapProfile : Profile
+    {
+        public RefCurrencyMapProfile()
+        {
+            CreateMap<RefCurrencyCreateUpdateDtoInput, RefCurrency>();
+            CreateMap<RefCurrency, RefCurrencyDtoOutput>();
+        }
+    }
 }

@@ -254,3 +254,4 @@ paket-files/
 #SntBackend
 **/App_Data/
 **/*.Development.json
+**/*.csproj.lscache

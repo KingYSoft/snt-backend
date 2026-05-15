@@ -7,6 +7,6 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
     {
         public AccTransactionHeaderDtoOutput Header { get; set; }
         public AccBankAccountDtoOutput Bank { get; set; }
-        public List<AccTransactionLinesDtoOutput> Lines { get; set; } = new();
+        public List<OutstandingInvoiceItem> Lines { get; set; } = new();
     }
 }

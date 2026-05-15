@@ -676,44 +676,78 @@ ORDER BY b.ab_accountnum
 
         public async Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk)
         {
-            var dp = new DynamicParameters();
-            dp.Add("pk", pk);
+            try
+            {
+                var dp = new DynamicParameters();
+                dp.Add("pk", pk);
 
-            var headerSql = @"
-SELECT t.*
+                var sql = @"
+SELECT t.*, b.*
 FROM AccTransactionHeader t
+LEFT JOIN AccBankAccount b ON b.ab_pk = t.ah_ab
 WHERE t.ah_pk = @pk
 ";
-            var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(headerSql, dp);
-            if (header == null) return null;
 
-            AccBankAccountDtoOutput bank = null;
-            if (!string.IsNullOrWhiteSpace(header.ah_ab))
-            {
-                var bankDp = new DynamicParameters();
-                bankDp.Add("ab", header.ah_ab);
-                var bankSql = @"
-SELECT b.*
-FROM AccBankAccount b
-WHERE b.ab_pk = @ab
-";
-                bank = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccBankAccountDtoOutput>(bankSql, bankDp);
+                MatchTransactionDetailOutput detail = null;
+                await _appSqlServerRepository.QueryAsync<AccTransactionHeaderDtoOutput, AccBankAccountDtoOutput, MatchTransactionDetailOutput>(
+                    sql,
+                    (header, bank) =>
+                    {
+                        if (detail == null)
+                        {
+                            detail = new MatchTransactionDetailOutput { Header = header };
+                        }
+                        if (bank != null && !string.IsNullOrWhiteSpace(bank.ab_pk))
+                        {
+                            detail.Bank = bank;
+                        }
+                        return detail;
+                    },
+                    dp, splitOn: "ab_pk");
+
+                if (detail == null) return null;
+
+                var h = detail.Header;
+                detail.Lines = new List<OutstandingInvoiceItem>
+                {
+                    new OutstandingInvoiceItem
+                    {
+                        Id = h.ah_pk,
+                        TthPk = h.ah_pk,
+                        Ledger = h.ah_ledger,
+                        JobNo = h.ah_jobnumber,
+                        TaxInvoiceNo = h.ah_transactionnum,
+                        InvoiceNumber = h.ah_transactionnum,
+                        BillingDate = h.ah_invoicedate,
+                        ChargeDesc = h.ah_desc,
+                        Outstanding = h.ah_outstandingamount,
+                        SettlementAmountOriginal = h.ah_ostotal,
+                        ExRate = h.ah_exchangerate,
+                        SettlementAmountHome = h.ah_invoiceamount,
+                        Currency = h.ah_rx_nktransactioncurrency
+                    }
+                };
+
+                return detail;
             }
-
-            var linesSql = @"
-SELECT l.*
-FROM AccTransactionLines l
-WHERE l.al_ah = @pk
-ORDER BY l.al_sequence
-";
-            var lines = (await _appSqlServerRepository.QueryAsync<AccTransactionLinesDtoOutput>(linesSql, dp)).ToList();
-
-            return new MatchTransactionDetailOutput
+            catch (Exception ex)
             {
-                Header = header,
-                Bank = bank,
-                Lines = lines
-            };
+                Console.WriteLine("=========== MatchTransactionDetail ERROR ===========");
+                Console.WriteLine($"Type    : {ex.GetType().FullName}");
+                Console.WriteLine($"Message : {ex.Message}");
+                Console.WriteLine($"Stack   : {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Console.WriteLine("--- Inner ---");
+                    Console.WriteLine($"Type    : {inner.GetType().FullName}");
+                    Console.WriteLine($"Message : {inner.Message}");
+                    Console.WriteLine($"Stack   : {inner.StackTrace}");
+                    inner = inner.InnerException;
+                }
+                Console.WriteLine("====================================================");
+                throw;
+            }
         }
 
         public async Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input)

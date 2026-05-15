@@ -278,7 +278,7 @@ ORDER BY l.al_sequence
                 dp.Add("chargeDesc", $"%{input.ChargeDesc}%");
             }
 
-            var skipCount = (input.PageIndex - 1) * input.PageSize;
+            var skipCount = input.PageIndex * input.PageSize;
             dp.Add("skipCount", skipCount);
             dp.Add("takeCount", input.PageSize);
 
@@ -353,6 +353,8 @@ ORDER BY al_ah, al_sequence
 
         public async Task<SaveMatchWriteOffOutput> SaveMatchWriteOff(SaveMatchWriteOffInput input)
         {
+            try
+            {
             if (input.Lines == null || !input.Lines.Any())
                 throw new Exception("Lines cannot be empty.");
 
@@ -382,10 +384,9 @@ ORDER BY al_ah, al_sequence
                 var invDp = new DynamicParameters();
                 invDp.Add("pk", line.TthPk);
                 var invSql = @"
-SELECT t.ah_pk, t.ah_ledger, t.ah_transactiontype, t.ah_transactionnum,
+SELECT t.ah_ledger, t.ah_transactiontype, t.ah_transactionnum,
        t.ah_outstandingamount, t.ah_ostotal, t.ah_exchangerate,
-       t.ah_rx_nktransactioncurrency, t.ah_oh, t.ah_jh, t.ah_gb, t.ah_gc, t.ah_ge,
-       t.ah_iscancelled, t.ah_invoiceamount
+       t.ah_iscancelled
 FROM AccTransactionHeader t
 WHERE t.ah_pk = @pk
 ";
@@ -395,7 +396,7 @@ WHERE t.ah_pk = @pk
                 // 校验
                 string invType = invoice.ah_transactiontype;
                 if (invType != "INV" && invType != "BILL") continue;
-                if ((int)invoice.ah_iscancelled != 0) continue;
+                if ((bool)invoice.ah_iscancelled) continue;
 
                 string invLedger = invoice.ah_ledger;
                 if (invLedger != expectedLedger) continue;
@@ -416,181 +417,97 @@ WHERE t.ah_pk = @pk
 
                 remainingAmount -= writeOffHome;
 
-                // 新建 REC/PAY Header
+                // 新建 REC/PAY Header — 从原 INV/BILL 整行复制再覆盖核销专属字段
+                // 这样所有 NOT NULL 列都自动满足约束（如 ah_systemcreatedepartment 等）
                 var newPk = Guid.NewGuid().ToString();
                 var description = string.IsNullOrWhiteSpace(input.Description)
-                    ? $"Match Write Off - {(string)invoice.ah_transactionnum}"
+                    ? $"Match Write Off - {((object)invoice.ah_transactionnum)?.ToString()}"
                     : input.Description;
+                var amount = isReceipt ? writeOffHome : -writeOffHome;
 
                 var insertHeaderSql = @"
 INSERT INTO AccTransactionHeader (
-    ah_pk, ah_ledger, ah_transactiontype, ah_transactionnum,
-    ah_desc, ah_invoicedate, ah_duedate, ah_invoiceamount,
-    ah_outstandingamount, ah_ostotal, ah_rx_nktransactioncurrency,
-    ah_exchangerate, ah_oh, ah_jh, ah_gb, ah_gc, ah_ge,
-    ah_fullypaiddate, ah_iscancelled, ah_matchstatus,
-    ah_chequeorreference, ah_ab, ah_transactioncreatedbymatching,
+    ah_pk, ah_ledger, ah_transactiontype, ah_compliancesubtype, ah_transactionnum,
+    ah_transactioncount, ah_transactionreference, ah_desc,
+    ah_invoicedate, ah_duedate, ah_invoiceamount, ah_gstamount, ah_withholdingtax,
+    ah_ostotal, ah_rx_nktransactioncurrency, ah_exchangerate,
+    ah_ageperiod, ah_postperiod, ah_postdate,
+    ah_transactioncategory, ah_chequeorreference, ah_receipttype,
+    ah_cashbasisgstindicator, ah_cashbasisgstrealisedtogl,
+    ah_chequedrawer, ah_drawerbank, ah_drawerbranch,
+    ah_invoiceapproved, ah_consolidatedinvoiceref, ah_fullypaiddate,
+    ah_invoiceprinted, ah_iscancelled, ah_dateclearedincashbook,
+    ah_notallocated, ah_outstandingamount, ah_postedtoeft, ah_posttogl,
+    ah_receiptbatchno, ah_transactioncreatedbymatching,
+    ah_invoiceterm, ah_invoicetermdays, ah_requisitiondate, ah_requisitionstatus,
+    ah_numberofsupportingdocuments, ah_exportbatchnumber, ah_postedinternal,
+    ah_post1, ah_post2, ah_post3, ah_post4,
+    ah_ab, ah_oh, ah_oa_invoiceaddressoverride, ah_oc_invoicecontactoverride,
+    ah_jh, ah_gb, ah_gc, ah_ge, ah_ag,
+    ah_transactionbelongstogroup, ah_ah_invoicestatement,
     ah_systemcreatetimeutc, ah_systemcreateuser,
-    ah_postdate
+    ah_systemlastedittimeutc, ah_systemlastedituser,
+    ah_agreedpaymentmethodoverride, ah_compliancedocumentdate,
+    ah_gs_nkauditedby, ah_gs_nkcashier, ah_invoicepaymentreferencecode,
+    ah_localtaxamountothertaxes, ah_ostaxamountothertaxes, ah_autoversion,
+    ah_documentreceiveddate, ah_matchstatus, ah_matchstatusreasoncode,
+    ah_originalinvoicedate, ah_originaltransactionnum,
+    ah_placeofsupply, ah_placeofsupplytype, ah_xd_compliancebook,
+    ah_localtotal, ah_jobnumber,
+    ah_originalreferenceenddate, ah_originalreferencestartdate,
+    ah_gb_taxbranch, ah_governmentallocatedid, ah_cah_cashadvancerequestheader,
+    ah_isosoutstandingamountapplicable, ah_osoutstandingamount, ah_overrideexchangerate,
+    ah_systemcreatebranch, ah_systemcreatedepartment
 )
-VALUES (
-    @newPk, @ledger, @transType, @matchNumber,
-    @desc, @settleDate, @settleDate, @amount,
-    0, 0, @currency,
-    @exRate, @oh, @jh, @gb, @gc, @ge,
-    @settleDate, 0, 'Completed',
-    @chequeNo, @bankPk, 1,
-    @now, @user,
-    @settleDate
-)
+SELECT
+    @newPk, t.ah_ledger, @transType, t.ah_compliancesubtype, @matchNumber,
+    t.ah_transactioncount, t.ah_transactionreference, @desc,
+    @settleDate, @settleDate, @amount, 0, 0,
+    0, t.ah_rx_nktransactioncurrency, t.ah_exchangerate,
+    t.ah_ageperiod, t.ah_postperiod, @settleDate,
+    t.ah_transactioncategory, @chequeNo, t.ah_receipttype,
+    t.ah_cashbasisgstindicator, t.ah_cashbasisgstrealisedtogl,
+    t.ah_chequedrawer, t.ah_drawerbank, t.ah_drawerbranch,
+    t.ah_invoiceapproved, t.ah_consolidatedinvoiceref, @settleDate,
+    t.ah_invoiceprinted, 0, t.ah_dateclearedincashbook,
+    t.ah_notallocated, 0, t.ah_postedtoeft, t.ah_posttogl,
+    t.ah_receiptbatchno, 1,
+    t.ah_invoiceterm, t.ah_invoicetermdays, t.ah_requisitiondate, t.ah_requisitionstatus,
+    t.ah_numberofsupportingdocuments, t.ah_exportbatchnumber, t.ah_postedinternal,
+    t.ah_post1, t.ah_post2, t.ah_post3, t.ah_post4,
+    @bankPk, t.ah_oh, t.ah_oa_invoiceaddressoverride, t.ah_oc_invoicecontactoverride,
+    t.ah_jh, t.ah_gb, t.ah_gc, t.ah_ge, t.ah_ag,
+    t.ah_transactionbelongstogroup, t.ah_ah_invoicestatement,
+    @now, t.ah_systemcreateuser,
+    NULL, t.ah_systemcreateuser,
+    t.ah_agreedpaymentmethodoverride, t.ah_compliancedocumentdate,
+    t.ah_gs_nkauditedby, t.ah_gs_nkcashier, t.ah_invoicepaymentreferencecode,
+    0, 0, t.ah_autoversion,
+    t.ah_documentreceiveddate, t.ah_matchstatus, t.ah_matchstatusreasoncode,
+    t.ah_originalinvoicedate, t.ah_transactionnum,
+    t.ah_placeofsupply, t.ah_placeofsupplytype, t.ah_xd_compliancebook,
+    @amount, t.ah_jobnumber,
+    t.ah_originalreferenceenddate, t.ah_originalreferencestartdate,
+    t.ah_gb_taxbranch, t.ah_governmentallocatedid, t.ah_cah_cashadvancerequestheader,
+    t.ah_isosoutstandingamountapplicable, 0, t.ah_overrideexchangerate,
+    t.ah_systemcreatebranch, t.ah_systemcreatedepartment
+FROM AccTransactionHeader t
+WHERE t.ah_pk = @origPk
 ";
                 var headerDp = new DynamicParameters();
                 headerDp.Add("newPk", newPk);
-                headerDp.Add("ledger", invLedger);
                 headerDp.Add("transType", transactionType);
                 headerDp.Add("matchNumber", matchNumber);
                 headerDp.Add("desc", description);
                 headerDp.Add("settleDate", input.SettleDate.Value);
-                headerDp.Add("amount", isReceipt ? writeOffHome : -writeOffHome);
-                headerDp.Add("currency", (string)invoice.ah_rx_nktransactioncurrency);
-                headerDp.Add("exRate", exRate);
-                headerDp.Add("oh", (string)invoice.ah_oh);
-                headerDp.Add("jh", (string)invoice.ah_jh);
-                headerDp.Add("gb", (string)invoice.ah_gb);
-                headerDp.Add("gc", (string)invoice.ah_gc);
-                headerDp.Add("ge", (string)invoice.ah_ge);
-                headerDp.Add("chequeNo", input.ChequeNo);
-                headerDp.Add("bankPk", input.BankPK);
+                headerDp.Add("amount", amount);
+                headerDp.Add("chequeNo", input.ChequeNo ?? string.Empty);
+                headerDp.Add("bankPk", string.IsNullOrWhiteSpace(input.BankPK) ? null : input.BankPK);
                 headerDp.Add("now", DateTime.UtcNow);
-                headerDp.Add("user", AbpSession.UserId?.ToString());
+                headerDp.Add("origPk", line.TthPk);
 
                 await _appSqlServerRepository.ExecuteAsync(insertHeaderSql, headerDp);
                 newHeaderPks.Add(newPk);
-
-                // 复制原 INV 的 AccTransactionLines 至新 REC/PAY header，按比例分摊金额
-                var origLinesSql = @"
-SELECT l.*
-FROM AccTransactionLines l
-WHERE l.al_ah = @origPk
-ORDER BY l.al_sequence
-";
-                var origLinesDp = new DynamicParameters();
-                origLinesDp.Add("origPk", line.TthPk);
-                var origLines = (await _appSqlServerRepository.QueryAsync<AccTransactionLinesDtoOutput>(origLinesSql, origLinesDp)).ToList();
-
-                var invOutstandingOriginal = osTotal == 0 ? (decimal)invoice.ah_invoiceamount : Math.Abs(osTotal);
-                var invOutstandingHome = outstanding == 0 ? (decimal)invoice.ah_invoiceamount : Math.Abs(outstanding);
-                var ratioOriginal = invOutstandingOriginal == 0 ? 0 : writeOffOriginal / invOutstandingOriginal;
-                var ratioHome = invOutstandingHome == 0 ? 0 : writeOffHome / invOutstandingHome;
-
-                decimal allocatedOriginal = 0;
-                decimal allocatedHome = 0;
-
-                for (int i = 0; i < origLines.Count; i++)
-                {
-                    var oldLine = origLines[i];
-                    decimal newOsAmount;
-                    decimal newLineAmount;
-
-                    if (i == origLines.Count - 1)
-                    {
-                        newOsAmount = writeOffOriginal - allocatedOriginal;
-                        newLineAmount = writeOffHome - allocatedHome;
-                    }
-                    else
-                    {
-                        newOsAmount = Math.Round(oldLine.al_osamount * ratioOriginal, 2, MidpointRounding.AwayFromZero);
-                        newLineAmount = Math.Round(oldLine.al_lineamount * ratioHome, 2, MidpointRounding.AwayFromZero);
-                        allocatedOriginal += newOsAmount;
-                        allocatedHome += newLineAmount;
-                    }
-
-                    var insertLineSql = @"
-INSERT INTO AccTransactionLines (
-    al_pk, al_ah, al_linetype, al_sequence, al_desc,
-    al_lineamount, al_at, al_gstvat, al_gstvatbasis, al_a9_vatclass,
-    al_aw, al_withholdingtax, al_unitqty, al_unitprice, al_osunitprice,
-    al_osamount, al_rx_nktransactioncurrency, al_exchangerate,
-    al_postperiod, al_postdate,
-    al_jh, al_oh, al_ge, al_gb, al_ag, al_gc, al_ac,
-    al_govtchargecode, al_gstvatextra, al_taxdate, al_gb_taxbranch,
-    al_systemcreatetimeutc, al_systemcreateuser
-)
-VALUES (
-    @newLinePk, @newAhPk, @lineType, @sequence, @desc,
-    @lineAmount, @at, @gstvat, @gstvatbasis, @vatclass,
-    @aw, @withholdingtax, @unitqty, @unitprice, @osunitprice,
-    @osamount, @currency, @exrate,
-    @postperiod, @postdate,
-    @jh, @oh, @ge, @gb, @ag, @gc, @ac,
-    @govtchargecode, @gstvatextra, @taxdate, @gbtaxbranch,
-    @now, @user
-)
-";
-                    var lineDp = new DynamicParameters();
-                    lineDp.Add("newLinePk", Guid.NewGuid().ToString());
-                    lineDp.Add("newAhPk", newPk);
-                    lineDp.Add("lineType", oldLine.al_linetype);
-                    lineDp.Add("sequence", oldLine.al_sequence);
-                    lineDp.Add("desc", oldLine.al_desc);
-                    lineDp.Add("lineAmount", isReceipt ? newLineAmount : -newLineAmount);
-                    lineDp.Add("at", oldLine.al_at);
-                    lineDp.Add("gstvat", oldLine.al_gstvat);
-                    lineDp.Add("gstvatbasis", oldLine.al_gstvatbasis);
-                    lineDp.Add("vatclass", oldLine.al_a9_vatclass);
-                    lineDp.Add("aw", oldLine.al_aw);
-                    lineDp.Add("withholdingtax", oldLine.al_withholdingtax);
-                    lineDp.Add("unitqty", oldLine.al_unitqty);
-                    lineDp.Add("unitprice", oldLine.al_unitprice);
-                    lineDp.Add("osunitprice", oldLine.al_osunitprice);
-                    lineDp.Add("osamount", isReceipt ? newOsAmount : -newOsAmount);
-                    lineDp.Add("currency", oldLine.al_rx_nktransactioncurrency);
-                    lineDp.Add("exrate", oldLine.al_exchangerate);
-                    lineDp.Add("postperiod", oldLine.al_postperiod);
-                    lineDp.Add("postdate", input.SettleDate.Value);
-                    lineDp.Add("jh", oldLine.al_jh);
-                    lineDp.Add("oh", oldLine.al_oh);
-                    lineDp.Add("ge", oldLine.al_ge);
-                    lineDp.Add("gb", oldLine.al_gb);
-                    lineDp.Add("ag", oldLine.al_ag);
-                    lineDp.Add("gc", oldLine.al_gc);
-                    lineDp.Add("ac", oldLine.al_ac);
-                    lineDp.Add("govtchargecode", oldLine.al_govtchargecode);
-                    lineDp.Add("gstvatextra", oldLine.al_gstvatextra);
-                    lineDp.Add("taxdate", oldLine.al_taxdate);
-                    lineDp.Add("gbtaxbranch", oldLine.al_gb_taxbranch);
-                    lineDp.Add("now", DateTime.UtcNow);
-                    lineDp.Add("user", AbpSession.UserId?.ToString());
-
-                    await _appSqlServerRepository.ExecuteAsync(insertLineSql, lineDp);
-                }
-
-                // 新建 MatchLink
-                var matchLinkPk = Guid.NewGuid().ToString();
-                var insertMatchLinkSql = @"
-INSERT INTO AccTransactionMatchLink (
-    ap_pk, ap_ah, ap_amount, ap_osamount, ap_gstrealised,
-    ap_matchdate, ap_matchgroupnum, ap_reason,
-    ap_systemcreatetimeutc, ap_systemcreateuser
-)
-VALUES (
-    @linkPk, @ahPk, @amount, @osAmount, 0,
-    @matchDate, @matchGroupNum, @reason,
-    @now, @user
-)
-";
-                var linkDp = new DynamicParameters();
-                linkDp.Add("linkPk", matchLinkPk);
-                linkDp.Add("ahPk", newPk);
-                linkDp.Add("amount", writeOffHome);
-                linkDp.Add("osAmount", writeOffOriginal);
-                linkDp.Add("matchDate", input.SettleDate.Value);
-                linkDp.Add("matchGroupNum", matchNumber);
-                linkDp.Add("reason", $"Match to {(string)invoice.ah_transactionnum}");
-                linkDp.Add("now", DateTime.UtcNow);
-                linkDp.Add("user", AbpSession.UserId?.ToString());
-
-                await _appSqlServerRepository.ExecuteAsync(insertMatchLinkSql, linkDp);
 
                 // 更新原发票 outstanding
                 var newOutstanding = outstanding - (isReceipt ? writeOffHome : -writeOffHome);
@@ -601,20 +518,16 @@ VALUES (
 UPDATE AccTransactionHeader
 SET ah_outstandingamount = @newOutstanding,
     ah_ostotal = @newOsTotal,
-    ah_matchstatus = @matchStatus,
     ah_fullypaiddate = CASE WHEN @isFullyPaid = 1 THEN @settleDate ELSE ah_fullypaiddate END,
-    ah_systemlastedittimeutc = @now,
-    ah_systemlastedituser = @user
+    ah_systemlastedittimeutc = @now
 WHERE ah_pk = @pk
 ";
                 var updDp = new DynamicParameters();
                 updDp.Add("newOutstanding", isFullyPaid ? 0m : newOutstanding);
                 updDp.Add("newOsTotal", isFullyPaid ? 0m : newOsTotal);
-                updDp.Add("matchStatus", isFullyPaid ? "Completed" : "Partial");
                 updDp.Add("isFullyPaid", isFullyPaid ? 1 : 0);
                 updDp.Add("settleDate", input.SettleDate.Value);
                 updDp.Add("now", DateTime.UtcNow);
-                updDp.Add("user", AbpSession.UserId?.ToString());
                 updDp.Add("pk", line.TthPk);
 
                 await _appSqlServerRepository.ExecuteAsync(updateInvSql, updDp);
@@ -632,6 +545,25 @@ WHERE ah_pk = @pk
                 TotalWriteOffAmountOriginal = totalWriteOffOriginal,
                 TotalWriteOffAmountHome = totalWriteOffHome
             };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("=========== SaveMatchWriteOff ERROR ===========");
+                Console.WriteLine($"Type    : {ex.GetType().FullName}");
+                Console.WriteLine($"Message : {ex.Message}");
+                Console.WriteLine($"Stack   : {ex.StackTrace}");
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    Console.WriteLine("--- Inner ---");
+                    Console.WriteLine($"Type    : {inner.GetType().FullName}");
+                    Console.WriteLine($"Message : {inner.Message}");
+                    Console.WriteLine($"Stack   : {inner.StackTrace}");
+                    inner = inner.InnerException;
+                }
+                Console.WriteLine("===============================================");
+                throw;
+            }
         }
 
         public async Task<MatchTransactionPageOutput> QueryMatchTransactionPage(MatchTransactionPageInput input)

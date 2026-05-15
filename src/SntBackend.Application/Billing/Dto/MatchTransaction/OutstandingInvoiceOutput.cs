@@ -18,10 +18,10 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
         public string InvoiceNumber { get; set; }
         public System.DateTime? BillingDate { get; set; }
         public string ChargeDesc { get; set; }
-        public decimal Outstanding { get; set; }
-        public decimal SettlementAmountOriginal { get; set; }
-        public decimal ExRate { get; set; }
-        public decimal SettlementAmountHome { get; set; }
+        public decimal? Outstanding { get; set; }
+        public decimal? SettlementAmountOriginal { get; set; }
+        public decimal? ExRate { get; set; }
+        public decimal? SettlementAmountHome { get; set; }
         public string Currency { get; set; }
     }
 }

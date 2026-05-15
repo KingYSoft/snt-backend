@@ -75,5 +75,8 @@ namespace SntBackend.DomainService.Repositories
         /// <summary>
         /// </summary>
         public IOrgHeaderRepository OrgHeaderRepository => IocManager.Instance.Resolve<IOrgHeaderRepository>();
+        /// <summary>
+        /// </summary>
+        public IRefCurrencyRepository RefCurrencyRepository => IocManager.Instance.Resolve<IRefCurrencyRepository>();
     }
 }

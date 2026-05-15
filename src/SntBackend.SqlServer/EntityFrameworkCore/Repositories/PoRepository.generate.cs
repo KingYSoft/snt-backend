@@ -230,4 +230,15 @@ namespace SntBackend.SqlServer.EntityFrameworkCore.Repositories
         }
     }
 
+    /// <summary>
+    /// 
+    /// RefCurrencyRepository
+    /// </summary>
+    public partial class RefCurrencyRepository : SqlServerEfCoreRepositoryBase<RefCurrency, string>, IRefCurrencyRepository
+    {
+        public RefCurrencyRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
 }

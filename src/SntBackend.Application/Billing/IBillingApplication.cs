@@ -26,5 +26,6 @@ namespace SntBackend.Application.Billing
         Task<BillingSummaryDto> GetBillingSummary(string shpPk);
         Task<QueryChargesByInvoiceOutput> QueryChargesByInvoiceNo(string invoiceNo);
         Task<QueryOrgAddressOutput> QueryOrgAddress(QueryOrgAddressInput input);
+        Task<List<CurrencyOptionOutput>> CurrencyOptions(string query);
     }
 }

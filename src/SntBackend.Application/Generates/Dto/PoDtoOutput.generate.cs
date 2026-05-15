@@ -5458,4 +5458,72 @@ namespace SntBackend.Application.Po.Dto
         public string oh_systemcreatedepartment { get; set; }
     }
 
+    /// <summary>
+    /// 实体输出（AutoMapper）
+    /// RefCurrencyDtoOutput
+    /// </summary>
+    public partial class RefCurrencyDtoOutput : EntityDto<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_code { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int rx_isactive { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int rx_issystem { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_symbol { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_desc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_unitname { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_subunitname { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int rx_subunitratio { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int rx_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int rx_isosubunitratio { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? rx_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? rx_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string rx_systemlastedituser { get; set; }
+    }
+
 }

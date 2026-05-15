@@ -105,4 +105,15 @@ public class MatchTransactionController : SntBackendControllerBase
         var result = await _billingApplication.QueryOrgAddress(input);
         return new JsonResponse<QueryOrgAddressOutput> { Data = result };
     }
+
+    /// <summary>
+    /// 币种下拉框
+    /// </summary>
+    [HttpGet]
+    [Route("currency-options")]
+    public async Task<JsonResponse<List<CurrencyOptionOutput>>> CurrencyOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.CurrencyOptions(query);
+        return new JsonResponse<List<CurrencyOptionOutput>> { Data = result };
+    }
 }

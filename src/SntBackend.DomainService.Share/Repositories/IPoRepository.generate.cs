@@ -169,4 +169,12 @@ namespace SntBackend.DomainService.Share.Repositories
     {
     }
 
+    /// <summary>
+    /// 
+    /// IRefCurrencyRepository
+    /// </summary>
+    public partial interface IRefCurrencyRepository : IRepository<RefCurrency, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
 }

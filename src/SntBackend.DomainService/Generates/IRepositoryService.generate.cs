@@ -74,5 +74,8 @@ namespace SntBackend.DomainService.Repositories
         /// <summary>
         /// </summary>
         IOrgHeaderRepository OrgHeaderRepository { get; }
+        /// <summary>
+        /// </summary>
+        IRefCurrencyRepository RefCurrencyRepository { get; }
     }
 }

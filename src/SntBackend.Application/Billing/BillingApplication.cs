@@ -681,31 +681,24 @@ ORDER BY b.ab_accountnum
                 var dp = new DynamicParameters();
                 dp.Add("pk", pk);
 
-                var sql = @"
-SELECT t.*, b.*
-FROM AccTransactionHeader t
-LEFT JOIN AccBankAccount b ON b.ab_pk = t.ah_ab
-WHERE t.ah_pk = @pk
-";
+                var sql = @"SELECT * FROM AccTransactionHeader WHERE ah_pk = @pk";
+                var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
 
-                MatchTransactionDetailOutput detail = null;
-                await _appSqlServerRepository.QueryAsync<AccTransactionHeaderDtoOutput, AccBankAccountDtoOutput, MatchTransactionDetailOutput>(
-                    sql,
-                    (header, bank) =>
+                if (header == null) return null;
+
+                MatchTransactionDetailOutput detail = new MatchTransactionDetailOutput { Header = header };
+
+                if (!string.IsNullOrWhiteSpace(header.ah_ab))
+                {
+                    var bankDp = new DynamicParameters();
+                    bankDp.Add("ab_pk", header.ah_ab);
+                    var bankSql = @"SELECT * FROM AccBankAccount WHERE ab_pk = @ab_pk";
+                    var bank = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccBankAccountDtoOutput>(bankSql, bankDp);
+                    if (bank != null)
                     {
-                        if (detail == null)
-                        {
-                            detail = new MatchTransactionDetailOutput { Header = header };
-                        }
-                        if (bank != null && !string.IsNullOrWhiteSpace(bank.ab_pk))
-                        {
-                            detail.Bank = bank;
-                        }
-                        return detail;
-                    },
-                    dp, splitOn: "ab_pk");
-
-                if (detail == null) return null;
+                        detail.Bank = bank;
+                    }
+                }
 
                 var h = detail.Header;
                 detail.Lines = new List<OutstandingInvoiceItem>
@@ -1052,6 +1045,29 @@ WHERE h.AH_FullyPaidDate IS NULL
 ";
             output.List = (await _appSqlServerRepository.QueryAsync<QueryOrgAddressDto>(sql, dp)).ToList();
             return output;
+        }
+
+        public async Task<List<CurrencyOptionOutput>> CurrencyOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (c.rx_code LIKE @code OR c.rx_desc LIKE @desc) ";
+                var keyword = $"%{query.Trim()}%";
+                dp.Add("code", keyword);
+                dp.Add("desc", keyword);
+            }
+
+            var sql = $@"
+SELECT c.rx_pk AS pk, c.rx_code AS code, c.rx_desc AS [desc]
+FROM RefCurrency c
+WHERE c.rx_isactive = 1
+    {whereIf}
+ORDER BY c.rx_code
+";
+            return (await _appSqlServerRepository.QueryAsync<CurrencyOptionOutput>(sql, dp)).ToList();
         }
     }
 }

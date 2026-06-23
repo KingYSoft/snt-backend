@@ -4,6 +4,7 @@ using SntBackend.Application.Billing;
 using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Facade.AspNetCore.Mvc.Authorization;
 
@@ -108,5 +109,89 @@ public class BillingController : SntBackendControllerBase
     {
         var result = await _billingApplication.QueryChargesByInvoiceNo(invoiceNo);
         return new JsonResponse<QueryChargesByInvoiceOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 新增 / 修改 应收应付费用（JobCharge）
+    /// </summary>
+    [HttpPost]
+    [Route("create-or-update")]
+    [NoToken]
+    public async Task<JsonResponse<BillingCreateOrUpdateOutput>> CreateOrUpdate([FromBody] BillingCreateInput input)
+    {
+        var result = await _billingApplication.CreateOrUpdate(input);
+        return new JsonResponse<BillingCreateOrUpdateOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 生成草稿发票（返回新建的发票号列表）
+    /// </summary>
+    [HttpPost]
+    [Route("generate-draft")]
+    [NoToken]
+    public async Task<JsonResponse<List<string>>> GenerateDraft([FromBody] GenerateDraftInput input)
+    {
+        var result = await _billingApplication.GenerateDraft(input);
+        return new JsonResponse<List<string>> { Data = result };
+    }
+
+    /// <summary>
+    /// 过账（返回过账成功的发票头数量）
+    /// </summary>
+    [HttpPost]
+    [Route("post-charge")]
+    [NoToken]
+    public async Task<JsonResponse<int>> PostCharge([FromBody] PostChargeInput input)
+    {
+        var result = await _billingApplication.PostCharge(input);
+        return new JsonResponse<int> { Data = result };
+    }
+
+    /// <summary>
+    /// 批量删除费用（仅未开票行）
+    /// </summary>
+    [HttpPost]
+    [Route("delete")]
+    [NoToken]
+    public async Task<JsonResponse<int>> Delete([FromBody] List<string> jrPks)
+    {
+        var result = await _billingApplication.Delete(jrPks);
+        return new JsonResponse<int> { Data = result };
+    }
+
+    /// <summary>
+    /// 作废草稿发票（未过账）
+    /// </summary>
+    [HttpPost]
+    [Route("void-draft")]
+    [NoToken]
+    public async Task<JsonResponse<int>> VoidDraftInvoice([FromBody] VoidInvoiceInput input)
+    {
+        var result = await _billingApplication.VoidDraftInvoice(input);
+        return new JsonResponse<int> { Data = result };
+    }
+
+    /// <summary>
+    /// 作废正式账单（已过账，按发票号）
+    /// </summary>
+    [HttpPost]
+    [Route("void-posted")]
+    [NoToken]
+    public async Task<JsonResponse<int>> VoidPostedInvoice([FromBody] List<string> invoiceNos)
+    {
+        var result = await _billingApplication.VoidPostedInvoice(invoiceNos);
+        return new JsonResponse<int> { Data = result };
+    }
+
+    /// <summary>
+    /// 编辑草稿发票（删除/修改/新增费用）
+    /// </summary>
+    [HttpPost]
+    [Route("edit-draft")]
+    [NoToken]
+    public async Task<JsonResponse<int>> EditDraftInvoice([FromBody] DraftInvoiceEditInput input)
+    {
+        var result = await _billingApplication.EditDraftInvoice(input);
+        return new JsonResponse<int> { Data = result };
     }
 }

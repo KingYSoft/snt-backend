@@ -18,6 +18,8 @@ namespace SntBackend.Application.Billing.Dto
         public string jr_desc { get; set; }
         public decimal? amount { get; set; }
         public decimal? os_amount { get; set; }
+        public decimal? qty { get; set; }
+        public decimal? unit_price { get; set; }
         public string currency { get; set; }
         public string party_oh { get; set; }
         public decimal? exchange_rate { get; set; }

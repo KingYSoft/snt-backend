@@ -798,6 +798,11 @@ SELECT
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
+    -- 数量：优先取已开票行(al_unitqty)，否则回退 JobCharge.jr_productquantity
+    COALESCE(line.al_unitqty, jr.jr_productquantity) AS qty,
+    -- 单价：优先取已开票行(al_unitprice)，否则按 原币金额/数量 计算（数量为 0 时为 NULL）
+    COALESCE(line.al_unitprice,
+             CASE WHEN jr.jr_productquantity <> 0 THEN {osAmountCol} / jr.jr_productquantity END) AS unit_price,
     {currencyCol}  AS currency,
     {partyCol}     AS party_oh,
     {rateCol}      AS exchange_rate,
@@ -1072,6 +1077,45 @@ WHERE c.rx_isactive = 1
 ORDER BY c.rx_code
 ";
             return (await _appSqlServerRepository.QueryAsync<CurrencyOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (c.ac_code LIKE @kw OR c.ac_desc LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    c.ac_pk         AS pk,
+    c.ac_code       AS code,
+    c.ac_desc       AS [desc],
+    c.ac_chargetype AS charge_type
+FROM AccChargeCode c
+WHERE c.ac_isactive = 1
+    {whereIf}
+ORDER BY c.ac_code
+";
+            return (await _appSqlServerRepository.QueryAsync<ChargeCodeOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<string> GetHomeCurrency()
+        {
+            // snt 登录无 用户→分公司 映射，按"第一家启用公司"的本位币返回。
+            var sql = @"
+SELECT TOP 1 gc.gc_rx_nklocalcurrency
+FROM GlbCompany gc
+WHERE gc.gc_isactive = 1
+    AND gc.gc_isvalid = 1
+    AND gc.gc_rx_nklocalcurrency IS NOT NULL
+ORDER BY gc.gc_code
+";
+            return await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(sql);
         }
 
         // ============================================================================

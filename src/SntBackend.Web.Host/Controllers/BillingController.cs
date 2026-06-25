@@ -2,6 +2,7 @@ using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Billing;
 using SntBackend.Application.Billing.Dto;
+using SntBackend.Application.Billing.Dto.MatchTransaction;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Collections.Generic;
@@ -73,6 +74,28 @@ public class BillingController : SntBackendControllerBase
     {
         var result = await _billingApplication.QueryChargeLine(input);
         return new JsonResponse<BillingChargeLineOutput> { Data = result };
+    }
+
+    /// <summary>
+    /// 费用代码下拉框（来源 AccChargeCode）
+    /// </summary>
+    [HttpGet]
+    [Route("charge-code-options")]
+    public async Task<JsonResponse<List<ChargeCodeOptionOutput>>> ChargeCodeOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.ChargeCodeOptions(query);
+        return new JsonResponse<List<ChargeCodeOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// 当前 home/本位币（取第一家启用公司的 gc_rx_nklocalcurrency）
+    /// </summary>
+    [HttpGet]
+    [Route("home-currency")]
+    public async Task<JsonResponse<string>> HomeCurrency()
+    {
+        var result = await _billingApplication.GetHomeCurrency();
+        return new JsonResponse<string> { Data = result };
     }
 
     /// <summary>

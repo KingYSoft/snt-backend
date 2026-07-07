@@ -77,5 +77,8 @@ namespace SntBackend.DomainService.Repositories
         /// <summary>
         /// </summary>
         IRefCurrencyRepository RefCurrencyRepository { get; }
+        /// <summary>
+        /// </summary>
+        IZZRefExchangeRateRepository ZZRefExchangeRateRepository { get; }
     }
 }

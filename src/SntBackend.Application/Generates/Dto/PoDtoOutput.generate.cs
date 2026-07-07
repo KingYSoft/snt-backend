@@ -5526,4 +5526,64 @@ namespace SntBackend.Application.Po.Dto
         public string rx_systemlastedituser { get; set; }
     }
 
+    /// <summary>
+    /// 实体输出（AutoMapper）
+    /// ZZRefExchangeRateDtoOutput
+    /// </summary>
+    public partial class ZZRefExchangeRateDtoOutput : EntityDto<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_exratetype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime re_startdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? re_expirydate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal re_sellrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_rx_nkexcurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_gc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_oh_client { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_aspublished { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? re_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? re_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_systemlastedituser { get; set; }
+    }
+
 }

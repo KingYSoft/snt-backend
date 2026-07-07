@@ -262,4 +262,16 @@ namespace SntBackend.Application.Po.Dto
             CreateMap<RefCurrency, RefCurrencyDtoOutput>();
         }
     }
+    /// <summary>
+    /// AutoMapper Profile 实体映射文件
+    /// ZZRefExchangeRateMapProfile
+    /// </summary>
+    public partial class ZZRefExchangeRateMapProfile : Profile
+    {
+        public ZZRefExchangeRateMapProfile()
+        {
+            CreateMap<ZZRefExchangeRateCreateUpdateDtoInput, ZZRefExchangeRate>();
+            CreateMap<ZZRefExchangeRate, ZZRefExchangeRateDtoOutput>();
+        }
+    }
 }

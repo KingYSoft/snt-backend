@@ -5505,4 +5505,63 @@ namespace SntBackend.DomainService.Share.Po
         public string rx_systemlastedituser { get; set; }
     }
 
+    /// <summary>
+    /// ZZRefExchangeRate
+    /// </summary>
+    public partial class ZZRefExchangeRate : Entity<string>
+    {
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_pk { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_exratetype { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime re_startdate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? re_expirydate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public decimal re_sellrate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_rx_nkexcurrency { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_gc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_oh_client { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_aspublished { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? re_systemcreatetimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_systemcreateuser { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public System.DateTime? re_systemlastedittimeutc { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string re_systemlastedituser { get; set; }
+    }
+
 }

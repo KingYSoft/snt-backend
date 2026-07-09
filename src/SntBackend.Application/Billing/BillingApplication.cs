@@ -784,9 +784,10 @@ ORDER BY b.ab_accountnum
 SELECT COUNT(*)
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND jr.jr_isvalid = 1
     AND {sideFilter}
 ";
@@ -817,11 +818,12 @@ SELECT
     CASE WHEN inv.ah_postdate IS NOT NULL THEN 'N' ELSE 'Y' END AS Draft
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND jr.jr_isvalid = 1
     AND {sideFilter}
 {orderBy}
@@ -867,9 +869,10 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 SELECT COUNT(*)
 FROM AccTransactionHeader ah
 INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND ah.ah_iscancelled = 0
     AND ah.ah_transactiontype = 'INV'
     {ledgerWhere}
@@ -878,9 +881,10 @@ WHERE jh.jh_parentid = @shpPk
 SELECT ah.*
 FROM AccTransactionHeader ah
 INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND ah.ah_iscancelled = 0
     AND ah.ah_transactiontype = 'INV'
     {ledgerWhere}
@@ -915,9 +919,10 @@ SELECT
     ISNULL(SUM(jr.jr_localcostamt), 0) AS ap
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND jr.jr_isvalid = 1
 ";
             var row = await _appSqlServerRepository.QueryFirstOrDefaultAsync<(decimal ar, decimal ap)>(sql, dp);
@@ -1168,7 +1173,17 @@ ORDER BY gc.gc_code
             if (input.charges == null || input.charges.Count == 0)
                 throw new Exception("charges cannot be empty.");
 
-            // 解析目标 JobHeader（该 shipment 下有效的作业头），create-time 字段从它继承
+            // 作废判断以 JobShipment.js_iscancelled 为准（不是 JobHeader.jh_isvalid）
+            var shpDp = new DynamicParameters();
+            shpDp.Add("shpPk", input.shpPk);
+            var cancelled = await _appSqlServerRepository.QueryFirstOrDefaultAsync<int?>(
+                "SELECT js_iscancelled FROM JobShipment WHERE js_pk = @shpPk", shpDp);
+            if (cancelled == null)
+                throw new Exception("货运不存在。");
+            if (cancelled == 1)
+                throw new Exception("该货运已取消，无法添加费用。");
+
+            // 解析目标 JobHeader（该 shipment 下的作业头，优先有效的），create-time 字段从它继承
             var jobDp = new DynamicParameters();
             jobDp.Add("shpPk", input.shpPk);
             var job = await _appSqlServerRepository.QueryFirstOrDefaultAsync<JobHeaderCtx>(@"
@@ -1176,12 +1191,11 @@ SELECT TOP 1 jh.jh_pk, jh.jh_gb, jh.jh_gc, jh.jh_ge, jh.jh_jobnum
 FROM JobHeader jh
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
-ORDER BY jh.jh_pk
+ORDER BY jh.jh_isvalid DESC, jh.jh_pk
 ", jobDp);
 
             if (job == null || string.IsNullOrWhiteSpace(job.jh_pk))
-                throw new Exception("JobHeader not found for this shipment.");
+                throw new Exception("未找到该货运对应的作业头。");
 
             // 用于满足 NOT NULL 列的模板行：优先取同 job 的一条 charge，否则任意一条
             var templateDp = new DynamicParameters();

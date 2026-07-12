@@ -745,6 +745,8 @@ ORDER BY b.ab_accountnum
 
         public async Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input)
         {
+          try
+          {
             if (string.IsNullOrWhiteSpace(input?.shpPk))
                 throw new System.Exception("shpPk cannot be empty.");
             if (string.IsNullOrWhiteSpace(input.chargeType))
@@ -776,7 +778,11 @@ ORDER BY b.ab_accountnum
                 : "ORDER BY jr.jr_displaysequence, jr.jr_pk";
 
             var dp = new DynamicParameters();
-            dp.Add("shpPk", input.shpPk);
+            // shpPk 对应的库列是 uniqueidentifier，按 Guid 传参避免隐式转换。
+            if (System.Guid.TryParse(input.shpPk, out var shpGuid))
+                dp.Add("shpPk", shpGuid, System.Data.DbType.Guid);
+            else
+                dp.Add("shpPk", input.shpPk);
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
 
@@ -839,6 +845,25 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             }
 
             return output;
+          }
+          catch (Exception ex)
+          {
+              Console.WriteLine("=========== QueryChargeLine ERROR ===========");
+              Console.WriteLine($"Type    : {ex.GetType().FullName}");
+              Console.WriteLine($"Message : {ex.Message}");
+              Console.WriteLine($"Stack   : {ex.StackTrace}");
+              var inner = ex.InnerException;
+              while (inner != null)
+              {
+                  Console.WriteLine("--- Inner ---");
+                  Console.WriteLine($"Type    : {inner.GetType().FullName}");
+                  Console.WriteLine($"Message : {inner.Message}");
+                  Console.WriteLine($"Stack   : {inner.StackTrace}");
+                  inner = inner.InnerException;
+              }
+              Console.WriteLine("=============================================");
+              throw;
+          }
         }
 
         public async Task<BillingDraftPageOutput> QueryDraftPage(BillingDraftPageInput input)
@@ -1267,6 +1292,7 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                 var p = new DynamicParameters();
                 p.Add("code", c.jr_chargetype);
                 p.Add("desc", c.jr_desc);
+                p.Add("invoiceType", c.jr_invoicetype);
                 p.Add("now", now);
                 p.Add("user", SysUser);
                 // 双侧参数
@@ -1328,6 +1354,7 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
 UPDATE JobCharge SET
     jr_chargetype = @code,
     jr_desc = @desc,
+    jr_invoicetype = COALESCE(@invoiceType, jr_invoicetype),
     {setSide},
     jr_systemlastedittimeutc = @now,
     jr_systemlastedituser = @user
@@ -1374,7 +1401,7 @@ SELECT
     @osSell, @sellVat, 0, @localSell, t.jr_sellrated, t.jr_sellratingoverride,
     @sellGst, @sellWht, 0, NULL, NULL, NULL,
     0, t.jr_isincludedinprofitshare, @code, 0, 0,
-    t.jr_invoicetype, t.jr_proformarevenue, 0, @seq, NULL,
+    COALESCE(@invoiceType, t.jr_invoicetype), t.jr_proformarevenue, 0, @seq, NULL,
     NULL, t.jr_op_product, t.jr_productquantity, t.jr_e6, @gc, NULL, t.jr_e6_gatewaysellheader,
     NULL, @ledger, @sellCcy, NULL, NULL, NULL,
     0, NULL, t.jr_autoversion, t.jr_costplaceofsupply, t.jr_costplaceofsupplytype,
@@ -1891,6 +1918,7 @@ WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", d
             p.Add("ge", ge);
             p.Add("code", c.jr_chargetype);
             p.Add("desc", c.jr_desc);
+            p.Add("invoiceType", c.jr_invoicetype);
             p.Add("ledger", isAr ? "AR" : "AP");
             p.Add("seq", seq);
             p.Add("now", now);

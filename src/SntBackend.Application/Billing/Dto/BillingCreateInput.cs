@@ -57,5 +57,8 @@ namespace SntBackend.Application.Billing.Dto
 
         /// <summary>VAT class（AR=jr_a9_sellvatclass / AP=jr_a9_costvatclass）</summary>
         public string vat_class { get; set; }
+
+        /// <summary>发票类型 jr_invoicetype；为空时沿用模板行/原值</summary>
+        public string jr_invoicetype { get; set; }
     }
 }

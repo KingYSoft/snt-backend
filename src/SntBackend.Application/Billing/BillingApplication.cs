@@ -1216,6 +1216,8 @@ ORDER BY gc.gc_code
 
         public async Task<BillingCreateOrUpdateOutput> CreateOrUpdate(BillingCreateInput input)
         {
+          try
+          {
             if (string.IsNullOrWhiteSpace(input?.shpPk))
                 throw new Exception("shpPk cannot be empty.");
             if (input.charges == null || input.charges.Count == 0)
@@ -1279,9 +1281,11 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                 var rate = c.exchange_rate ?? 0m;
                 var os = c.os_amount ?? 0m;
                 var local = c.amount ?? 0m;
-                var gst = c.gst_rate;
-                var wht = c.wht_rate;
-                var vat = c.vat_class;
+                // gst/wht/vat 对应列是 uniqueidentifier 外键：只接受合法 GUID(pk)，
+                // 空串 / "0.00" / "EXEMPT" 等非 GUID 一律存 NULL，避免转换报错。
+                Guid? gst = Guid.TryParse(c.gst_rate, out var gstG) ? gstG : (Guid?)null;
+                Guid? wht = Guid.TryParse(c.wht_rate, out var whtG) ? whtG : (Guid?)null;
+                Guid? vat = Guid.TryParse(c.vat_class, out var vatG) ? vatG : (Guid?)null;
                 // AP 按负数存储（与 snt 现有 AP 数据一致）
                 if (isAp)
                 {
@@ -1370,6 +1374,25 @@ WHERE jr_pk = @pk", p);
             }
 
             return new BillingCreateOrUpdateOutput { ChangeLogs = changeLogs };
+          }
+          catch (Exception ex)
+          {
+              Console.WriteLine("=========== CreateOrUpdate ERROR ===========");
+              Console.WriteLine($"Type    : {ex.GetType().FullName}");
+              Console.WriteLine($"Message : {ex.Message}");
+              Console.WriteLine($"Stack   : {ex.StackTrace}");
+              var inner = ex.InnerException;
+              while (inner != null)
+              {
+                  Console.WriteLine("--- Inner ---");
+                  Console.WriteLine($"Type    : {inner.GetType().FullName}");
+                  Console.WriteLine($"Message : {inner.Message}");
+                  Console.WriteLine($"Stack   : {inner.StackTrace}");
+                  inner = inner.InnerException;
+              }
+              Console.WriteLine("============================================");
+              throw;
+          }
         }
 
         // INSERT JobCharge：列顺序与 Po 实体一致；覆盖列用 @param，其余复制模板行 t
@@ -1395,24 +1418,42 @@ INSERT INTO JobCharge (
     jr_costratingoverridecomment, jr_sellratingoverridecomment
 )
 SELECT
+    -- 1-8: 主键/作业上下文
     @pk, 1, @jh, @ge, @gb, t.jr_jh_internaljob, t.jr_ge_internaldept, t.jr_gb_internalbranch,
+    -- 9-15: jr_linecfx, jr_ac, jr_desc, jr_oh_costaccount, jr_costrated, jr_costratingoverride, jr_oscostamt
     t.jr_linecfx, t.jr_ac, @desc, @costParty, t.jr_costrated, t.jr_costratingoverride, @osCost,
-    0, @localCost, @costCcy, @costRate, @costGst,
+    -- 16-20: agentdeclaredcost, localcost, costcurrency(NOT NULL→兜底模板), costexrate, costgstrate
+    0, @localCost, COALESCE(@costCcy, t.jr_rx_nkcostcurrency), @costRate, @costGst,
+    -- 21-25: oscostgstamt, costvatclass, costwhtrate, oscostwhtamt, estimatedcost
     0, @costVat, @costWht, 0, 0,
-    NULL, NULL, NULL, NULL, 0,
-    NULL, NULL, NULL, NULL, NULL, NULL, 0, t.jr_proformacost,
-    @sellParty, NULL, NULL, @sellCcy, @sellRate,
+    -- 26-30: aplinepostingstatus, costreference, apinvoicenum(均 NOT NULL→模板), apinvoicedate, apnumsupportdocs
+    t.jr_aplinepostingstatus, t.jr_costreference, t.jr_apinvoicenum, NULL, 0,
+    -- 31-38: paymentdate, paymenttype, chequeno(NOT NULL→模板), ak, ab, al_apline, declaredoscostamt, proformacost
+    NULL, t.jr_paymenttype, t.jr_chequeno, NULL, NULL, NULL, 0, t.jr_proformacost,
+    -- 39-43: sellaccount, sellinvoiceaddress, sellinvoicecontact, sellcurrency(NOT NULL→兜底模板), sellexrate
+    @sellParty, NULL, NULL, COALESCE(@sellCcy, t.jr_rx_nksellcurrency), @sellRate,
+    -- 44-49: ossellamt, sellvatclass, agentdeclaredsell, localsellamt, sellrated, sellratingoverride
     @osSell, @sellVat, 0, @localSell, t.jr_sellrated, t.jr_sellratingoverride,
-    @sellGst, @sellWht, 0, NULL, NULL, NULL,
-    0, t.jr_isincludedinprofitshare, @code, 0, 0,
-    COALESCE(@invoiceType, t.jr_invoicetype), t.jr_proformarevenue, 0, @seq, NULL,
-    NULL, t.jr_op_product, t.jr_productquantity, t.jr_e6, @gc, NULL, t.jr_e6_gatewaysellheader,
-    NULL, @ledger, @sellCcy, NULL, NULL, NULL,
+    -- 50-55: sellgstrate, sellwhtrate, ossellwhtamt, sellreference(NOT NULL→模板), al_arline, al_cfxline
+    @sellGst, @sellWht, 0, t.jr_sellreference, NULL, NULL,
+    -- 56-60: estimatedrevenue, isincludedinprofitshare, chargetype(NOT NULL→兜底模板), marginpct, arnumsupportdocs
+    0, t.jr_isincludedinprofitshare, COALESCE(@code, t.jr_chargetype), 0, 0,
+    -- 61-65: invoicetype, proformarevenue, preventinvoiceprintgrouping, displaysequence, arlinepostingstatus(NOT NULL→模板)
+    COALESCE(@invoiceType, t.jr_invoicetype), t.jr_proformarevenue, 0, @seq, t.jr_arlinepostingstatus,
+    -- 66-72: orderreference(NOT NULL→模板), op_product, productquantity, e6, gc, costgovtchargecode(NOT NULL→模板), e6_gatewaysellheader
+    t.jr_orderreference, t.jr_op_product, t.jr_productquantity, t.jr_e6, @gc, t.jr_costgovtchargecode, t.jr_e6_gatewaysellheader,
+    -- 73-78: jr_revenueline, linetype, sellinvoicecurrency(NOT NULL→兜底模板), sellgovtchargecode(NOT NULL→模板), costtaxdate, selltaxdate
+    NULL, @ledger, COALESCE(@sellCcy, t.jr_rx_nksellinvoicecurrency), t.jr_sellgovtchargecode, NULL, NULL,
+    -- 79-83: iscosttaxamountoverridden, apdocumentreceiveddate, autoversion, costplaceofsupply, costplaceofsupplytype
     0, NULL, t.jr_autoversion, t.jr_costplaceofsupply, t.jr_costplaceofsupplytype,
+    -- 84-88: sellplaceofsupply, sellplaceofsupplytype, costsupplytype, sellsupplytype, systemcreatetimeutc
     t.jr_sellplaceofsupply, t.jr_sellplaceofsupplytype, t.jr_costsupplytype, t.jr_sellsupplytype, @now,
-    @user, NULL, @user, NULL, NULL,
+    -- 89-93: systemcreateuser(模板), systemlastedittimeutc, systemlastedituser(模板), cal_apline, cal_arline
+    t.jr_systemcreateuser, NULL, t.jr_systemcreateuser, NULL, NULL,
+    -- 94-98: gb_costtaxbranch, gb_selltaxbranch, isapcashadvance, isarcashadvance, isspotcost
     NULL, NULL, t.jr_isapcashadvance, t.jr_isarcashadvance, t.jr_isspotcost,
-    NULL, NULL
+    -- 99-100: costratingoverridecomment, sellratingoverridecomment (均 NOT NULL→模板)
+    t.jr_costratingoverridecomment, t.jr_sellratingoverridecomment
 FROM JobCharge t
 WHERE t.jr_pk = @templatePk
 ";

@@ -1319,7 +1319,8 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                     var newPk = Guid.NewGuid().ToString();
                     p.Add("pk", newPk);
                     p.Add("jh", job.jh_pk);
-                    p.Add("gb", job.jh_gb);
+                    // 分支：入参优先，为空则继承 JobHeader.jh_gb
+                    p.Add("gb", string.IsNullOrWhiteSpace(c.jr_gb) ? job.jh_gb : c.jr_gb);
                     p.Add("gc", job.jh_gc);
                     p.Add("ge", job.jh_ge);
                     p.Add("ledger", isAr ? "AR" : "AP");
@@ -1342,6 +1343,8 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                         continue; // 已锁定，跳过
 
                     p.Add("pk", c.jr_pk);
+                    // 分支：入参为空则沿用原值
+                    p.Add("gb", string.IsNullOrWhiteSpace(c.jr_gb) ? null : c.jr_gb);
                     var setSide = isAr
                         ? @"jr_oh_sellaccount=@sellParty, jr_rx_nksellcurrency=@sellCcy, jr_ossellexrate=@sellRate,
                             jr_ossellamt=@osSell, jr_localsellamt=@localSell, jr_at_sellgstrate=@sellGst,
@@ -1354,6 +1357,7 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
 UPDATE JobCharge SET
     jr_chargetype = @code,
     jr_desc = @desc,
+    jr_gb = COALESCE(@gb, jr_gb),
     jr_invoicetype = COALESCE(@invoiceType, jr_invoicetype),
     {setSide},
     jr_systemlastedittimeutc = @now,

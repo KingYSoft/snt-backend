@@ -60,5 +60,8 @@ namespace SntBackend.Application.Billing.Dto
 
         /// <summary>发票类型 jr_invoicetype；为空时沿用模板行/原值</summary>
         public string jr_invoicetype { get; set; }
+
+        /// <summary>分公司/分支 jr_gb（来源 BranchOptions 的 gb_pk）；新增时为空则继承 JobHeader.jh_gb，修改时为空则沿用原值</summary>
+        public string jr_gb { get; set; }
     }
 }

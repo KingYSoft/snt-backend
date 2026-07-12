@@ -815,6 +815,12 @@ SELECT
     {gstCol}       AS gst_rate,
     {whtCol}       AS wht_rate,
     {vatCol}       AS vat_class,
+    jr.jr_invoicetype AS jr_invoicetype,
+    jr.jr_gb          AS jr_gb,
+    gb.gb_code        AS branch_code,
+    gb.gb_branchname  AS branch_name,
+    party.oh_code     AS party_code,
+    party.oh_fullname AS party_name,
     {lineCol}      AS line_pk,
     inv.ah_pk              AS invoice_pk,
     inv.ah_transactionnum  AS invoice_no,
@@ -826,6 +832,8 @@ INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
 INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
+LEFT JOIN GlbBranch gb ON gb.gb_pk = jr.jr_gb
+LEFT JOIN OrgHeader party ON party.oh_pk = {partyCol}
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
     AND js.js_iscancelled = 0 

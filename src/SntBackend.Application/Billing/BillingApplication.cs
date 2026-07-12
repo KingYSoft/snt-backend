@@ -801,6 +801,9 @@ SELECT
     jr.jr_pk,
     jr.jr_jh,
     jr.jr_chargetype,
+    jr.jr_ac         AS jr_ac,
+    cc.ac_code       AS charge_code,
+    cc.ac_desc       AS charge_desc,
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
@@ -834,6 +837,7 @@ LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
 LEFT JOIN GlbBranch gb ON gb.gb_pk = jr.jr_gb
 LEFT JOIN OrgHeader party ON party.oh_pk = {partyCol}
+LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
     AND js.js_iscancelled = 0 
@@ -1038,6 +1042,9 @@ SELECT
     jr.jr_pk,
     jr.jr_jh,
     jr.jr_chargetype,
+    jr.jr_ac         AS jr_ac,
+    cc.ac_code       AS charge_code,
+    cc.ac_desc       AS charge_desc,
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
@@ -1053,6 +1060,7 @@ SELECT
     NULL           AS invoice_date,
     'N'            AS Draft
 FROM JobCharge jr
+LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
 WHERE {lineCol} IN @linePks
 ORDER BY jr.jr_displaysequence, jr.jr_pk
 ";
@@ -1163,6 +1171,76 @@ WHERE b.gb_isactive = 1
 ORDER BY b.gb_code
 ";
             return (await _appSqlServerRepository.QueryAsync<BranchOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<GstRateOptionOutput>> GstRateOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (t.AT_Code LIKE @kw OR t.AT_Description LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    t.AT_PK          AS pk,
+    t.AT_Code        AS code,
+    t.AT_Description AS [desc]
+FROM AccTaxRate t
+WHERE t.AT_IsActive = 1
+    {whereIf}
+ORDER BY t.AT_Code
+";
+            return (await _appSqlServerRepository.QueryAsync<GstRateOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<WhtRateOptionOutput>> WhtRateOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (w.AW_Code LIKE @kw OR w.AW_Description LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    w.AW_PK          AS pk,
+    w.AW_Code        AS code,
+    w.AW_Description AS [desc],
+    w.AW_Rate        AS rate
+FROM AccWithholding w
+WHERE w.AW_IsActive = 1
+    {whereIf}
+ORDER BY w.AW_Code
+";
+            return (await _appSqlServerRepository.QueryAsync<WhtRateOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<VatClassOptionOutput>> VatClassOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (m.A9_Code LIKE @kw OR m.A9_Description LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    m.A9_PK          AS pk,
+    m.A9_Code        AS code,
+    m.A9_Description AS [desc]
+FROM AccInvMsg m
+WHERE m.A9_IsActive = 1
+    {whereIf}
+ORDER BY m.A9_Code
+";
+            return (await _appSqlServerRepository.QueryAsync<VatClassOptionOutput>(sql, dp)).ToList();
         }
 
         public async Task<string> GetHomeCurrency()
@@ -1289,11 +1367,21 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                 var rate = c.exchange_rate ?? 0m;
                 var os = c.os_amount ?? 0m;
                 var local = c.amount ?? 0m;
-                // gst/wht/vat 对应列是 uniqueidentifier 外键：只接受合法 GUID(pk)，
-                // 空串 / "0.00" / "EXEMPT" 等非 GUID 一律存 NULL，避免转换报错。
+                // gst/wht/vat：前端从各自数据源下拉选择后回传 pk(uniqueidentifier 外键)，直接存。
+                // 传空 / 非合法 GUID → 存 NULL(不报错)。
                 Guid? gst = Guid.TryParse(c.gst_rate, out var gstG) ? gstG : (Guid?)null;
                 Guid? wht = Guid.TryParse(c.wht_rate, out var whtG) ? whtG : (Guid?)null;
                 Guid? vat = Guid.TryParse(c.vat_class, out var vatG) ? vatG : (Guid?)null;
+                // 费用代码：前端传 pk(ac_pk) 存 jr_ac；并按 pk 查出分类码回填 jr_chargetype。
+                Guid? ac = Guid.TryParse(c.jr_ac, out var acG) ? acG : (Guid?)null;
+                string chargeTypeCode = c.jr_chargetype;
+                if (ac != null)
+                {
+                    var acDp = new DynamicParameters();
+                    acDp.Add("ac", ac);
+                    chargeTypeCode = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(
+                        "SELECT TOP 1 ac_chargetype FROM AccChargeCode WHERE ac_pk = @ac", acDp);
+                }
                 // AP 按负数存储（与 snt 现有 AP 数据一致）
                 if (isAp)
                 {
@@ -1302,7 +1390,8 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                 }
 
                 var p = new DynamicParameters();
-                p.Add("code", c.jr_chargetype);
+                p.Add("ac", ac);
+                p.Add("code", chargeTypeCode);
                 p.Add("desc", c.jr_desc);
                 p.Add("invoiceType", c.jr_invoicetype);
                 p.Add("now", now);
@@ -1367,7 +1456,8 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
 
                     var rows = await _appSqlServerRepository.ExecuteAsync($@"
 UPDATE JobCharge SET
-    jr_chargetype = @code,
+    jr_ac = COALESCE(@ac, jr_ac),
+    jr_chargetype = COALESCE(@code, jr_chargetype),
     jr_desc = @desc,
     jr_gb = COALESCE(@gb, jr_gb),
     jr_invoicetype = COALESCE(@invoiceType, jr_invoicetype),
@@ -1428,8 +1518,8 @@ INSERT INTO JobCharge (
 SELECT
     -- 1-8: 主键/作业上下文
     @pk, 1, @jh, @ge, @gb, t.jr_jh_internaljob, t.jr_ge_internaldept, t.jr_gb_internalbranch,
-    -- 9-15: jr_linecfx, jr_ac, jr_desc, jr_oh_costaccount, jr_costrated, jr_costratingoverride, jr_oscostamt
-    t.jr_linecfx, t.jr_ac, @desc, @costParty, t.jr_costrated, t.jr_costratingoverride, @osCost,
+    -- 9-15: jr_linecfx, jr_ac(费用代码pk,入参优先), jr_desc, jr_oh_costaccount, jr_costrated, jr_costratingoverride, jr_oscostamt
+    t.jr_linecfx, COALESCE(@ac, t.jr_ac), @desc, @costParty, t.jr_costrated, t.jr_costratingoverride, @osCost,
     -- 16-20: agentdeclaredcost, localcost, costcurrency(NOT NULL→兜底模板), costexrate, costgstrate
     0, @localCost, COALESCE(@costCcy, t.jr_rx_nkcostcurrency), @costRate, @costGst,
     -- 21-25: oscostgstamt, costvatclass, costwhtrate, oscostwhtamt, estimatedcost

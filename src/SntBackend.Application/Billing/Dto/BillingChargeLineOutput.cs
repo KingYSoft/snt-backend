@@ -14,7 +14,14 @@ namespace SntBackend.Application.Billing.Dto
     {
         public string jr_pk { get; set; }
         public string jr_jh { get; set; }
+        /// <summary>费用分类码 jr_chargetype（'MRG' 这类，非费用代码）</summary>
         public string jr_chargetype { get; set; }
+        /// <summary>费用代码 pk jr_ac（AccChargeCode.ac_pk），前端回选下拉用</summary>
+        public string jr_ac { get; set; }
+        /// <summary>费用代码 AccChargeCode.ac_code（显示用）</summary>
+        public string charge_code { get; set; }
+        /// <summary>费用代码描述 AccChargeCode.ac_desc（显示用）</summary>
+        public string charge_desc { get; set; }
         public string jr_desc { get; set; }
         public decimal? amount { get; set; }
         public decimal? os_amount { get; set; }

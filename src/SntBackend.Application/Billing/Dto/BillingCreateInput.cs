@@ -28,7 +28,10 @@ namespace SntBackend.Application.Billing.Dto
         /// <summary>AR 取销售侧，AP 取成本侧</summary>
         public string chargeType { get; set; }
 
-        /// <summary>业务费用代码 jr_chargetype</summary>
+        /// <summary>费用代码 pk（AccChargeCode.ac_pk，来源 ChargeCodeOptions）。存入 jr_ac，并据此回填分类码 jr_chargetype。</summary>
+        public string jr_ac { get; set; }
+
+        /// <summary>费用分类码 jr_chargetype（一般由后端按 jr_ac 自动回填，前端可不传）</summary>
         public string jr_chargetype { get; set; }
 
         /// <summary>jr_desc</summary>

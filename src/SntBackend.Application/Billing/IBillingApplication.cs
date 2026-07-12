@@ -34,6 +34,15 @@ namespace SntBackend.Application.Billing
         /// <summary>分公司/分支下拉框（来源 GlbBranch）。</summary>
         Task<List<BranchOptionOutput>> BranchOptions(string query);
 
+        /// <summary>GST 税率下拉框（来源 AccTaxRate）。</summary>
+        Task<List<GstRateOptionOutput>> GstRateOptions(string query);
+
+        /// <summary>WHT 预扣税下拉框（来源 AccWithholding）。</summary>
+        Task<List<WhtRateOptionOutput>> WhtRateOptions(string query);
+
+        /// <summary>VAT class 下拉框（来源 AccInvMsg）。</summary>
+        Task<List<VatClassOptionOutput>> VatClassOptions(string query);
+
         /// <summary>
         /// 当前 home/本位币：取第一家启用的 GlbCompany 的本位币(gc_rx_nklocalcurrency)。
         /// 注：snt 登录无 用户→分公司 映射，故按公司维度返回，而非按用户分公司。

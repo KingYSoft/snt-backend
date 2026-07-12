@@ -99,6 +99,39 @@ public class BillingController : SntBackendControllerBase
     }
 
     /// <summary>
+    /// GST 税率下拉框（来源 AccTaxRate）
+    /// </summary>
+    [HttpGet]
+    [Route("gst-rate-options")]
+    public async Task<JsonResponse<List<GstRateOptionOutput>>> GstRateOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.GstRateOptions(query);
+        return new JsonResponse<List<GstRateOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// WHT 预扣税下拉框（来源 AccWithholding）
+    /// </summary>
+    [HttpGet]
+    [Route("wht-rate-options")]
+    public async Task<JsonResponse<List<WhtRateOptionOutput>>> WhtRateOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.WhtRateOptions(query);
+        return new JsonResponse<List<WhtRateOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// VAT class 下拉框（来源 AccInvMsg）
+    /// </summary>
+    [HttpGet]
+    [Route("vat-class-options")]
+    public async Task<JsonResponse<List<VatClassOptionOutput>>> VatClassOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.VatClassOptions(query);
+        return new JsonResponse<List<VatClassOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
     /// 当前 home/本位币（取第一家启用公司的 gc_rx_nklocalcurrency）
     /// </summary>
     [HttpGet]

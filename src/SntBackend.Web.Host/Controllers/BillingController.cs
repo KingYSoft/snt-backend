@@ -88,6 +88,17 @@ public class BillingController : SntBackendControllerBase
     }
 
     /// <summary>
+    /// 分公司/分支下拉框（来源 GlbBranch）
+    /// </summary>
+    [HttpGet]
+    [Route("branch-options")]
+    public async Task<JsonResponse<List<BranchOptionOutput>>> BranchOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.BranchOptions(query);
+        return new JsonResponse<List<BranchOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
     /// 当前 home/本位币（取第一家启用公司的 gc_rx_nklocalcurrency）
     /// </summary>
     [HttpGet]

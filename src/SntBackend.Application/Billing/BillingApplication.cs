@@ -1109,6 +1109,31 @@ ORDER BY c.ac_code
             return (await _appSqlServerRepository.QueryAsync<ChargeCodeOptionOutput>(sql, dp)).ToList();
         }
 
+        public async Task<List<BranchOptionOutput>> BranchOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (b.gb_code LIKE @kw OR b.gb_branchname LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    b.gb_pk         AS pk,
+    b.gb_code       AS code,
+    b.gb_branchname AS [desc]
+FROM GlbBranch b
+WHERE b.gb_isactive = 1
+    AND b.gb_isvalid = 1
+    {whereIf}
+ORDER BY b.gb_code
+";
+            return (await _appSqlServerRepository.QueryAsync<BranchOptionOutput>(sql, dp)).ToList();
+        }
+
         public async Task<string> GetHomeCurrency()
         {
             // snt 登录无 用户→分公司 映射，按"第一家启用公司"的本位币返回。

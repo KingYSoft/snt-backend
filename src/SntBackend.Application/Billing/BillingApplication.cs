@@ -787,8 +787,7 @@ INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
 INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND js.js_iscancelled = 0
-    AND jr.jr_isvalid = 1
+    AND js.js_iscancelled = 0 
     AND {sideFilter}
 ";
             var pageSql = $@"
@@ -823,8 +822,7 @@ LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND js.js_iscancelled = 0
-    AND jr.jr_isvalid = 1
+    AND js.js_iscancelled = 0 
     AND {sideFilter}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -1107,6 +1105,31 @@ WHERE c.ac_isactive = 1
 ORDER BY c.ac_code
 ";
             return (await _appSqlServerRepository.QueryAsync<ChargeCodeOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<BranchOptionOutput>> BranchOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (b.gb_code LIKE @kw OR b.gb_branchname LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    b.gb_pk         AS pk,
+    b.gb_code       AS code,
+    b.gb_branchname AS [desc]
+FROM GlbBranch b
+WHERE b.gb_isactive = 1
+    AND b.gb_isvalid = 1
+    {whereIf}
+ORDER BY b.gb_code
+";
+            return (await _appSqlServerRepository.QueryAsync<BranchOptionOutput>(sql, dp)).ToList();
         }
 
         public async Task<string> GetHomeCurrency()

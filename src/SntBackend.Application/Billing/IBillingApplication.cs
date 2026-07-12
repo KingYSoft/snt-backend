@@ -31,6 +31,9 @@ namespace SntBackend.Application.Billing
         /// <summary>费用代码下拉框（来源 AccChargeCode）。</summary>
         Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query);
 
+        /// <summary>分公司/分支下拉框（来源 GlbBranch）。</summary>
+        Task<List<BranchOptionOutput>> BranchOptions(string query);
+
         /// <summary>
         /// 当前 home/本位币：取第一家启用的 GlbCompany 的本位币(gc_rx_nklocalcurrency)。
         /// 注：snt 登录无 用户→分公司 映射，故按公司维度返回，而非按用户分公司。

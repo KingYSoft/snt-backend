@@ -787,8 +787,7 @@ INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
 INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND js.js_iscancelled = 0
-    AND jr.jr_isvalid = 1
+    AND js.js_iscancelled = 0 
     AND {sideFilter}
 ";
             var pageSql = $@"
@@ -823,8 +822,7 @@ LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND js.js_iscancelled = 0
-    AND jr.jr_isvalid = 1
+    AND js.js_iscancelled = 0 
     AND {sideFilter}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY

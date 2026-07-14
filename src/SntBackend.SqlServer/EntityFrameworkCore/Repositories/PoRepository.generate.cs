@@ -241,4 +241,15 @@ namespace SntBackend.SqlServer.EntityFrameworkCore.Repositories
         }
     }
 
+    /// <summary>
+    /// 
+    /// ZZRefExchangeRateRepository
+    /// </summary>
+    public partial class ZZRefExchangeRateRepository : SqlServerEfCoreRepositoryBase<ZZRefExchangeRate, string>, IZZRefExchangeRateRepository
+    {
+        public ZZRefExchangeRateRepository(IDbContextProvider<SntBackendSqlServerDbContext> dbContextProvider) : base(dbContextProvider)
+        {
+        }
+    }
+
 }

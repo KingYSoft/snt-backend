@@ -1,7 +1,9 @@
+using System;
 using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Billing;
 using SntBackend.Application.Billing.Dto;
+using SntBackend.Application.Billing.Dto.MatchTransaction;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Collections.Generic;
@@ -76,6 +78,72 @@ public class BillingController : SntBackendControllerBase
     }
 
     /// <summary>
+    /// 费用代码下拉框（来源 AccChargeCode）
+    /// </summary>
+    [HttpGet]
+    [Route("charge-code-options")]
+    public async Task<JsonResponse<List<ChargeCodeOptionOutput>>> ChargeCodeOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.ChargeCodeOptions(query);
+        return new JsonResponse<List<ChargeCodeOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// 分公司/分支下拉框（来源 GlbBranch）
+    /// </summary>
+    [HttpGet]
+    [Route("branch-options")]
+    public async Task<JsonResponse<List<BranchOptionOutput>>> BranchOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.BranchOptions(query);
+        return new JsonResponse<List<BranchOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// GST 税率下拉框（来源 AccTaxRate）
+    /// </summary>
+    [HttpGet]
+    [Route("gst-rate-options")]
+    public async Task<JsonResponse<List<GstRateOptionOutput>>> GstRateOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.GstRateOptions(query);
+        return new JsonResponse<List<GstRateOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// WHT 预扣税下拉框（来源 AccWithholding）
+    /// </summary>
+    [HttpGet]
+    [Route("wht-rate-options")]
+    public async Task<JsonResponse<List<WhtRateOptionOutput>>> WhtRateOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.WhtRateOptions(query);
+        return new JsonResponse<List<WhtRateOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// VAT class 下拉框（来源 AccInvMsg）
+    /// </summary>
+    [HttpGet]
+    [Route("vat-class-options")]
+    public async Task<JsonResponse<List<VatClassOptionOutput>>> VatClassOptions([FromQuery] string query)
+    {
+        var result = await _billingApplication.VatClassOptions(query);
+        return new JsonResponse<List<VatClassOptionOutput>> { Data = result };
+    }
+
+    /// <summary>
+    /// 当前 home/本位币（取第一家启用公司的 gc_rx_nklocalcurrency）
+    /// </summary>
+    [HttpGet]
+    [Route("home-currency")]
+    public async Task<JsonResponse<string>> HomeCurrency()
+    {
+        var result = await _billingApplication.GetHomeCurrency();
+        return new JsonResponse<string> { Data = result };
+    }
+
+    /// <summary>
     /// 按 shipment + AR/AP 分页查询发票头（snt 无草稿，统一返回已过账）
     /// </summary>
     [HttpPost]
@@ -143,8 +211,16 @@ public class BillingController : SntBackendControllerBase
     [NoToken]
     public async Task<JsonResponse<int>> PostCharge([FromBody] PostChargeInput input)
     {
-        var result = await _billingApplication.PostCharge(input);
-        return new JsonResponse<int> { Data = result };
+        try
+        {
+            var result = await _billingApplication.PostCharge(input);
+            return new JsonResponse<int> { Data = result };
+        }
+        catch (Exception ex)
+        {
+            // 过账失败：把错误信息返回前端
+            return new JsonResponse<int>(false, ex.Message);
+        }
     }
 
     /// <summary>

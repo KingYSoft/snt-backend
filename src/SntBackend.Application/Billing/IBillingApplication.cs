@@ -28,6 +28,27 @@ namespace SntBackend.Application.Billing
         Task<QueryOrgAddressOutput> QueryOrgAddress(QueryOrgAddressInput input);
         Task<List<CurrencyOptionOutput>> CurrencyOptions(string query);
 
+        /// <summary>费用代码下拉框（来源 AccChargeCode）。</summary>
+        Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query);
+
+        /// <summary>分公司/分支下拉框（来源 GlbBranch）。</summary>
+        Task<List<BranchOptionOutput>> BranchOptions(string query);
+
+        /// <summary>GST 税率下拉框（来源 AccTaxRate）。</summary>
+        Task<List<GstRateOptionOutput>> GstRateOptions(string query);
+
+        /// <summary>WHT 预扣税下拉框（来源 AccWithholding）。</summary>
+        Task<List<WhtRateOptionOutput>> WhtRateOptions(string query);
+
+        /// <summary>VAT class 下拉框（来源 AccInvMsg）。</summary>
+        Task<List<VatClassOptionOutput>> VatClassOptions(string query);
+
+        /// <summary>
+        /// 当前 home/本位币：取第一家启用的 GlbCompany 的本位币(gc_rx_nklocalcurrency)。
+        /// 注：snt 登录无 用户→分公司 映射，故按公司维度返回，而非按用户分公司。
+        /// </summary>
+        Task<string> GetHomeCurrency();
+
         /// <summary>
         /// 新增 / 修改 应收应付费用（JobCharge）。无 jr_pk 新增，有 jr_pk 修改。
         /// </summary>
@@ -41,7 +62,8 @@ namespace SntBackend.Application.Billing
         Task<List<string>> GenerateDraft(GenerateDraftInput input);
 
         /// <summary>
-        /// 过账：把草稿发票头/行的 postdate 置为当前日期，并把关联 JobCharge 的过账状态置为 posted。
+        /// 直接过账：按 结算单位+币种 为选中的 JobCharge 建发票头/行后立即过账
+        /// （postdate 置为当前日期，关联 JobCharge 过账状态置 posted），无需预先生成草稿。
         /// 返回过账成功的发票头数量。
         /// </summary>
         Task<int> PostCharge(PostChargeInput input);

@@ -78,5 +78,8 @@ namespace SntBackend.DomainService.Repositories
         /// <summary>
         /// </summary>
         public IRefCurrencyRepository RefCurrencyRepository => IocManager.Instance.Resolve<IRefCurrencyRepository>();
+        /// <summary>
+        /// </summary>
+        public IZZRefExchangeRateRepository ZZRefExchangeRateRepository => IocManager.Instance.Resolve<IZZRefExchangeRateRepository>();
     }
 }

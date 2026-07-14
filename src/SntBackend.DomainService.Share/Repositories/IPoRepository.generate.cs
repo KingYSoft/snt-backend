@@ -177,4 +177,12 @@ namespace SntBackend.DomainService.Share.Repositories
     {
     }
 
+    /// <summary>
+    /// 
+    /// IZZRefExchangeRateRepository
+    /// </summary>
+    public partial interface IZZRefExchangeRateRepository : IRepository<ZZRefExchangeRate, string>, Abp.Dependency.ITransientDependency
+    {
+    }
+
 }

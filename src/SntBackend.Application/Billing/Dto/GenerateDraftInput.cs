@@ -15,10 +15,14 @@ namespace SntBackend.Application.Billing.Dto
     }
 
     /// <summary>
-    /// 过账入参：草稿发票头 ah_pk 列表（ah_postdate IS NULL 的草稿）。
+    /// 过账入参：直接过账——选中的 JobCharge pk 列表 + 侧别（AR/AP）。
+    /// 后端内部建发票头/行后立即过账，无需前端预先生成草稿。
     /// </summary>
     public class PostChargeInput
     {
-        public List<string> ahPks { get; set; } = new();
+        public List<string> pks { get; set; } = new();
+
+        /// <summary>AR / AP</summary>
+        public string chargeType { get; set; }
     }
 }

@@ -745,6 +745,8 @@ ORDER BY b.ab_accountnum
 
         public async Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input)
         {
+          try
+          {
             if (string.IsNullOrWhiteSpace(input?.shpPk))
                 throw new System.Exception("shpPk cannot be empty.");
             if (string.IsNullOrWhiteSpace(input.chargeType))
@@ -776,7 +778,11 @@ ORDER BY b.ab_accountnum
                 : "ORDER BY jr.jr_displaysequence, jr.jr_pk";
 
             var dp = new DynamicParameters();
-            dp.Add("shpPk", input.shpPk);
+            // shpPk 对应的库列是 uniqueidentifier，按 Guid 传参避免隐式转换。
+            if (System.Guid.TryParse(input.shpPk, out var shpGuid))
+                dp.Add("shpPk", shpGuid, System.Data.DbType.Guid);
+            else
+                dp.Add("shpPk", input.shpPk);
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
 
@@ -784,10 +790,10 @@ ORDER BY b.ab_accountnum
 SELECT COUNT(*)
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
-    AND jr.jr_isvalid = 1
+    AND js.js_iscancelled = 0 
     AND {sideFilter}
 ";
             var pageSql = $@"
@@ -795,15 +801,29 @@ SELECT
     jr.jr_pk,
     jr.jr_jh,
     jr.jr_chargetype,
+    jr.jr_ac         AS jr_ac,
+    cc.ac_code       AS charge_code,
+    cc.ac_desc       AS charge_desc,
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
+    -- 数量：优先取已开票行(al_unitqty)，否则回退 JobCharge.jr_productquantity
+    COALESCE(line.al_unitqty, jr.jr_productquantity) AS qty,
+    -- 单价：优先取已开票行(al_unitprice)，否则按 原币金额/数量 计算（数量为 0 时为 NULL）
+    COALESCE(line.al_unitprice,
+             CASE WHEN jr.jr_productquantity <> 0 THEN {osAmountCol} / jr.jr_productquantity END) AS unit_price,
     {currencyCol}  AS currency,
     {partyCol}     AS party_oh,
     {rateCol}      AS exchange_rate,
     {gstCol}       AS gst_rate,
     {whtCol}       AS wht_rate,
     {vatCol}       AS vat_class,
+    jr.jr_invoicetype AS jr_invoicetype,
+    jr.jr_gb          AS jr_gb,
+    gb.gb_code        AS branch_code,
+    gb.gb_branchname  AS branch_name,
+    party.oh_code     AS party_code,
+    party.oh_fullname AS party_name,
     {lineCol}      AS line_pk,
     inv.ah_pk              AS invoice_pk,
     inv.ah_transactionnum  AS invoice_no,
@@ -812,12 +832,15 @@ SELECT
     CASE WHEN inv.ah_postdate IS NOT NULL THEN 'N' ELSE 'Y' END AS Draft
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancelled = 0
+LEFT JOIN GlbBranch gb ON gb.gb_pk = jr.jr_gb
+LEFT JOIN OrgHeader party ON party.oh_pk = {partyCol}
+LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
-    AND jr.jr_isvalid = 1
+    AND js.js_iscancelled = 0 
     AND {sideFilter}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -834,6 +857,25 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             }
 
             return output;
+          }
+          catch (Exception ex)
+          {
+              Console.WriteLine("=========== QueryChargeLine ERROR ===========");
+              Console.WriteLine($"Type    : {ex.GetType().FullName}");
+              Console.WriteLine($"Message : {ex.Message}");
+              Console.WriteLine($"Stack   : {ex.StackTrace}");
+              var inner = ex.InnerException;
+              while (inner != null)
+              {
+                  Console.WriteLine("--- Inner ---");
+                  Console.WriteLine($"Type    : {inner.GetType().FullName}");
+                  Console.WriteLine($"Message : {inner.Message}");
+                  Console.WriteLine($"Stack   : {inner.StackTrace}");
+                  inner = inner.InnerException;
+              }
+              Console.WriteLine("=============================================");
+              throw;
+          }
         }
 
         public async Task<BillingDraftPageOutput> QueryDraftPage(BillingDraftPageInput input)
@@ -862,9 +904,10 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 SELECT COUNT(*)
 FROM AccTransactionHeader ah
 INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND ah.ah_iscancelled = 0
     AND ah.ah_transactiontype = 'INV'
     {ledgerWhere}
@@ -873,9 +916,10 @@ WHERE jh.jh_parentid = @shpPk
 SELECT ah.*
 FROM AccTransactionHeader ah
 INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND ah.ah_iscancelled = 0
     AND ah.ah_transactiontype = 'INV'
     {ledgerWhere}
@@ -910,9 +954,10 @@ SELECT
     ISNULL(SUM(jr.jr_localcostamt), 0) AS ap
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
+INNER JOIN JobShipment js ON js.js_pk = jh.jh_parentid
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
+    AND js.js_iscancelled = 0
     AND jr.jr_isvalid = 1
 ";
             var row = await _appSqlServerRepository.QueryFirstOrDefaultAsync<(decimal ar, decimal ap)>(sql, dp);
@@ -997,6 +1042,9 @@ SELECT
     jr.jr_pk,
     jr.jr_jh,
     jr.jr_chargetype,
+    jr.jr_ac         AS jr_ac,
+    cc.ac_code       AS charge_code,
+    cc.ac_desc       AS charge_desc,
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
@@ -1012,6 +1060,7 @@ SELECT
     NULL           AS invoice_date,
     'N'            AS Draft
 FROM JobCharge jr
+LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
 WHERE {lineCol} IN @linePks
 ORDER BY jr.jr_displaysequence, jr.jr_pk
 ";
@@ -1074,6 +1123,140 @@ ORDER BY c.rx_code
             return (await _appSqlServerRepository.QueryAsync<CurrencyOptionOutput>(sql, dp)).ToList();
         }
 
+        public async Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (c.ac_code LIKE @kw OR c.ac_desc LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    c.ac_pk         AS pk,
+    c.ac_code       AS code,
+    c.ac_desc       AS [desc],
+    c.ac_chargetype AS charge_type
+FROM AccChargeCode c
+WHERE c.ac_isactive = 1
+    {whereIf}
+ORDER BY c.ac_code
+";
+            return (await _appSqlServerRepository.QueryAsync<ChargeCodeOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<BranchOptionOutput>> BranchOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (b.gb_code LIKE @kw OR b.gb_branchname LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    b.gb_pk         AS pk,
+    b.gb_code       AS code,
+    b.gb_branchname AS [desc]
+FROM GlbBranch b
+WHERE b.gb_isactive = 1
+    AND b.gb_isvalid = 1
+    {whereIf}
+ORDER BY b.gb_code
+";
+            return (await _appSqlServerRepository.QueryAsync<BranchOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<GstRateOptionOutput>> GstRateOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (t.AT_Code LIKE @kw OR t.AT_Description LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    t.AT_PK          AS pk,
+    t.AT_Code        AS code,
+    t.AT_Description AS [desc]
+FROM AccTaxRate t
+WHERE t.AT_IsActive = 1
+    {whereIf}
+ORDER BY t.AT_Code
+";
+            return (await _appSqlServerRepository.QueryAsync<GstRateOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<WhtRateOptionOutput>> WhtRateOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (w.AW_Code LIKE @kw OR w.AW_Description LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    w.AW_PK          AS pk,
+    w.AW_Code        AS code,
+    w.AW_Description AS [desc],
+    w.AW_Rate        AS rate
+FROM AccWithholding w
+WHERE w.AW_IsActive = 1
+    {whereIf}
+ORDER BY w.AW_Code
+";
+            return (await _appSqlServerRepository.QueryAsync<WhtRateOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<List<VatClassOptionOutput>> VatClassOptions(string query)
+        {
+            var dp = new DynamicParameters();
+            var whereIf = "";
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                whereIf += " AND (m.A9_Code LIKE @kw OR m.A9_Description LIKE @kw) ";
+                dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            var sql = $@"
+SELECT TOP 100
+    m.A9_PK          AS pk,
+    m.A9_Code        AS code,
+    m.A9_Description AS [desc]
+FROM AccInvMsg m
+WHERE m.A9_IsActive = 1
+    {whereIf}
+ORDER BY m.A9_Code
+";
+            return (await _appSqlServerRepository.QueryAsync<VatClassOptionOutput>(sql, dp)).ToList();
+        }
+
+        public async Task<string> GetHomeCurrency()
+        {
+            // snt 登录无 用户→分公司 映射，按"第一家启用公司"的本位币返回。
+            var sql = @"
+SELECT TOP 1 gc.gc_rx_nklocalcurrency
+FROM GlbCompany gc
+WHERE gc.gc_isactive = 1
+    AND gc.gc_isvalid = 1
+    AND gc.gc_rx_nklocalcurrency IS NOT NULL
+ORDER BY gc.gc_code
+";
+            return await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(sql);
+        }
+
         // ============================================================================
         // 写操作（新增 / 修改 / 生成草稿 / 过账）
         // 移植自 first-cargo-backend IBillingApplication，按 snt 表名/字段名重写。
@@ -1119,12 +1302,24 @@ ORDER BY c.rx_code
 
         public async Task<BillingCreateOrUpdateOutput> CreateOrUpdate(BillingCreateInput input)
         {
+          try
+          {
             if (string.IsNullOrWhiteSpace(input?.shpPk))
                 throw new Exception("shpPk cannot be empty.");
             if (input.charges == null || input.charges.Count == 0)
                 throw new Exception("charges cannot be empty.");
 
-            // 解析目标 JobHeader（该 shipment 下有效的作业头），create-time 字段从它继承
+            // 作废判断以 JobShipment.js_iscancelled 为准（不是 JobHeader.jh_isvalid）
+            var shpDp = new DynamicParameters();
+            shpDp.Add("shpPk", input.shpPk);
+            var cancelled = await _appSqlServerRepository.QueryFirstOrDefaultAsync<int?>(
+                "SELECT js_iscancelled FROM JobShipment WHERE js_pk = @shpPk", shpDp);
+            if (cancelled == null)
+                throw new Exception("货运不存在。");
+            if (cancelled == 1)
+                throw new Exception("该货运已取消，无法添加费用。");
+
+            // 解析目标 JobHeader（该 shipment 下的作业头，优先有效的），create-time 字段从它继承
             var jobDp = new DynamicParameters();
             jobDp.Add("shpPk", input.shpPk);
             var job = await _appSqlServerRepository.QueryFirstOrDefaultAsync<JobHeaderCtx>(@"
@@ -1132,12 +1327,11 @@ SELECT TOP 1 jh.jh_pk, jh.jh_gb, jh.jh_gc, jh.jh_ge, jh.jh_jobnum
 FROM JobHeader jh
 WHERE jh.jh_parentid = @shpPk
     AND jh.jh_parenttablecode = 'JS'
-    AND jh.jh_isvalid = 1
-ORDER BY jh.jh_pk
+ORDER BY jh.jh_isvalid DESC, jh.jh_pk
 ", jobDp);
 
             if (job == null || string.IsNullOrWhiteSpace(job.jh_pk))
-                throw new Exception("JobHeader not found for this shipment.");
+                throw new Exception("未找到该货运对应的作业头。");
 
             // 用于满足 NOT NULL 列的模板行：优先取同 job 的一条 charge，否则任意一条
             var templateDp = new DynamicParameters();
@@ -1173,9 +1367,21 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                 var rate = c.exchange_rate ?? 0m;
                 var os = c.os_amount ?? 0m;
                 var local = c.amount ?? 0m;
-                var gst = c.gst_rate;
-                var wht = c.wht_rate;
-                var vat = c.vat_class;
+                // gst/wht/vat：前端从各自数据源下拉选择后回传 pk(uniqueidentifier 外键)，直接存。
+                // 传空 / 非合法 GUID → 存 NULL(不报错)。
+                Guid? gst = Guid.TryParse(c.gst_rate, out var gstG) ? gstG : (Guid?)null;
+                Guid? wht = Guid.TryParse(c.wht_rate, out var whtG) ? whtG : (Guid?)null;
+                Guid? vat = Guid.TryParse(c.vat_class, out var vatG) ? vatG : (Guid?)null;
+                // 费用代码：前端传 pk(ac_pk) 存 jr_ac；并按 pk 查出分类码回填 jr_chargetype。
+                Guid? ac = Guid.TryParse(c.jr_ac, out var acG) ? acG : (Guid?)null;
+                string chargeTypeCode = c.jr_chargetype;
+                if (ac != null)
+                {
+                    var acDp = new DynamicParameters();
+                    acDp.Add("ac", ac);
+                    chargeTypeCode = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(
+                        "SELECT TOP 1 ac_chargetype FROM AccChargeCode WHERE ac_pk = @ac", acDp);
+                }
                 // AP 按负数存储（与 snt 现有 AP 数据一致）
                 if (isAp)
                 {
@@ -1184,8 +1390,10 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                 }
 
                 var p = new DynamicParameters();
-                p.Add("code", c.jr_chargetype);
+                p.Add("ac", ac);
+                p.Add("code", chargeTypeCode);
                 p.Add("desc", c.jr_desc);
+                p.Add("invoiceType", c.jr_invoicetype);
                 p.Add("now", now);
                 p.Add("user", SysUser);
                 // 双侧参数
@@ -1212,7 +1420,8 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                     var newPk = Guid.NewGuid().ToString();
                     p.Add("pk", newPk);
                     p.Add("jh", job.jh_pk);
-                    p.Add("gb", job.jh_gb);
+                    // 分支：入参优先，为空则继承 JobHeader.jh_gb
+                    p.Add("gb", string.IsNullOrWhiteSpace(c.jr_gb) ? job.jh_gb : c.jr_gb);
                     p.Add("gc", job.jh_gc);
                     p.Add("ge", job.jh_ge);
                     p.Add("ledger", isAr ? "AR" : "AP");
@@ -1235,6 +1444,8 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                         continue; // 已锁定，跳过
 
                     p.Add("pk", c.jr_pk);
+                    // 分支：入参为空则沿用原值
+                    p.Add("gb", string.IsNullOrWhiteSpace(c.jr_gb) ? null : c.jr_gb);
                     var setSide = isAr
                         ? @"jr_oh_sellaccount=@sellParty, jr_rx_nksellcurrency=@sellCcy, jr_ossellexrate=@sellRate,
                             jr_ossellamt=@osSell, jr_localsellamt=@localSell, jr_at_sellgstrate=@sellGst,
@@ -1245,8 +1456,11 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
 
                     var rows = await _appSqlServerRepository.ExecuteAsync($@"
 UPDATE JobCharge SET
-    jr_chargetype = @code,
+    jr_ac = COALESCE(@ac, jr_ac),
+    jr_chargetype = COALESCE(@code, jr_chargetype),
     jr_desc = @desc,
+    jr_gb = COALESCE(@gb, jr_gb),
+    jr_invoicetype = COALESCE(@invoiceType, jr_invoicetype),
     {setSide},
     jr_systemlastedittimeutc = @now,
     jr_systemlastedituser = @user
@@ -1258,6 +1472,25 @@ WHERE jr_pk = @pk", p);
             }
 
             return new BillingCreateOrUpdateOutput { ChangeLogs = changeLogs };
+          }
+          catch (Exception ex)
+          {
+              Console.WriteLine("=========== CreateOrUpdate ERROR ===========");
+              Console.WriteLine($"Type    : {ex.GetType().FullName}");
+              Console.WriteLine($"Message : {ex.Message}");
+              Console.WriteLine($"Stack   : {ex.StackTrace}");
+              var inner = ex.InnerException;
+              while (inner != null)
+              {
+                  Console.WriteLine("--- Inner ---");
+                  Console.WriteLine($"Type    : {inner.GetType().FullName}");
+                  Console.WriteLine($"Message : {inner.Message}");
+                  Console.WriteLine($"Stack   : {inner.StackTrace}");
+                  inner = inner.InnerException;
+              }
+              Console.WriteLine("============================================");
+              throw;
+          }
         }
 
         // INSERT JobCharge：列顺序与 Po 实体一致；覆盖列用 @param，其余复制模板行 t
@@ -1283,34 +1516,63 @@ INSERT INTO JobCharge (
     jr_costratingoverridecomment, jr_sellratingoverridecomment
 )
 SELECT
+    -- 1-8: 主键/作业上下文
     @pk, 1, @jh, @ge, @gb, t.jr_jh_internaljob, t.jr_ge_internaldept, t.jr_gb_internalbranch,
-    t.jr_linecfx, t.jr_ac, @desc, @costParty, t.jr_costrated, t.jr_costratingoverride, @osCost,
-    0, @localCost, @costCcy, @costRate, @costGst,
+    -- 9-15: jr_linecfx, jr_ac(费用代码pk,入参优先), jr_desc, jr_oh_costaccount, jr_costrated, jr_costratingoverride, jr_oscostamt
+    t.jr_linecfx, COALESCE(@ac, t.jr_ac), @desc, @costParty, t.jr_costrated, t.jr_costratingoverride, @osCost,
+    -- 16-20: agentdeclaredcost, localcost, costcurrency(NOT NULL→兜底模板), costexrate, costgstrate
+    0, @localCost, COALESCE(@costCcy, t.jr_rx_nkcostcurrency), @costRate, @costGst,
+    -- 21-25: oscostgstamt, costvatclass, costwhtrate, oscostwhtamt, estimatedcost
     0, @costVat, @costWht, 0, 0,
-    NULL, NULL, NULL, NULL, 0,
-    NULL, NULL, NULL, NULL, NULL, NULL, 0, t.jr_proformacost,
-    @sellParty, NULL, NULL, @sellCcy, @sellRate,
+    -- 26-30: aplinepostingstatus, costreference, apinvoicenum(均 NOT NULL→模板), apinvoicedate, apnumsupportdocs
+    t.jr_aplinepostingstatus, t.jr_costreference, t.jr_apinvoicenum, NULL, 0,
+    -- 31-38: paymentdate, paymenttype, chequeno(NOT NULL→模板), ak, ab, al_apline, declaredoscostamt, proformacost
+    NULL, t.jr_paymenttype, t.jr_chequeno, NULL, NULL, NULL, 0, t.jr_proformacost,
+    -- 39-43: sellaccount, sellinvoiceaddress, sellinvoicecontact, sellcurrency(NOT NULL→兜底模板), sellexrate
+    @sellParty, NULL, NULL, COALESCE(@sellCcy, t.jr_rx_nksellcurrency), @sellRate,
+    -- 44-49: ossellamt, sellvatclass, agentdeclaredsell, localsellamt, sellrated, sellratingoverride
     @osSell, @sellVat, 0, @localSell, t.jr_sellrated, t.jr_sellratingoverride,
-    @sellGst, @sellWht, 0, NULL, NULL, NULL,
-    0, t.jr_isincludedinprofitshare, @code, 0, 0,
-    t.jr_invoicetype, t.jr_proformarevenue, 0, @seq, NULL,
-    NULL, t.jr_op_product, t.jr_productquantity, t.jr_e6, @gc, NULL, t.jr_e6_gatewaysellheader,
-    NULL, @ledger, @sellCcy, NULL, NULL, NULL,
+    -- 50-55: sellgstrate, sellwhtrate, ossellwhtamt, sellreference(NOT NULL→模板), al_arline, al_cfxline
+    @sellGst, @sellWht, 0, t.jr_sellreference, NULL, NULL,
+    -- 56-60: estimatedrevenue, isincludedinprofitshare, chargetype(NOT NULL→兜底模板), marginpct, arnumsupportdocs
+    0, t.jr_isincludedinprofitshare, COALESCE(@code, t.jr_chargetype), 0, 0,
+    -- 61-65: invoicetype, proformarevenue, preventinvoiceprintgrouping, displaysequence, arlinepostingstatus(NOT NULL→模板)
+    COALESCE(@invoiceType, t.jr_invoicetype), t.jr_proformarevenue, 0, @seq, t.jr_arlinepostingstatus,
+    -- 66-72: orderreference(NOT NULL→模板), op_product, productquantity, e6, gc, costgovtchargecode(NOT NULL→模板), e6_gatewaysellheader
+    t.jr_orderreference, t.jr_op_product, t.jr_productquantity, t.jr_e6, @gc, t.jr_costgovtchargecode, t.jr_e6_gatewaysellheader,
+    -- 73-78: jr_revenueline, linetype, sellinvoicecurrency(NOT NULL→兜底模板), sellgovtchargecode(NOT NULL→模板), costtaxdate, selltaxdate
+    NULL, @ledger, COALESCE(@sellCcy, t.jr_rx_nksellinvoicecurrency), t.jr_sellgovtchargecode, NULL, NULL,
+    -- 79-83: iscosttaxamountoverridden, apdocumentreceiveddate, autoversion, costplaceofsupply, costplaceofsupplytype
     0, NULL, t.jr_autoversion, t.jr_costplaceofsupply, t.jr_costplaceofsupplytype,
+    -- 84-88: sellplaceofsupply, sellplaceofsupplytype, costsupplytype, sellsupplytype, systemcreatetimeutc
     t.jr_sellplaceofsupply, t.jr_sellplaceofsupplytype, t.jr_costsupplytype, t.jr_sellsupplytype, @now,
-    @user, NULL, @user, NULL, NULL,
+    -- 89-93: systemcreateuser(模板), systemlastedittimeutc, systemlastedituser(模板), cal_apline, cal_arline
+    t.jr_systemcreateuser, NULL, t.jr_systemcreateuser, NULL, NULL,
+    -- 94-98: gb_costtaxbranch, gb_selltaxbranch, isapcashadvance, isarcashadvance, isspotcost
     NULL, NULL, t.jr_isapcashadvance, t.jr_isarcashadvance, t.jr_isspotcost,
-    NULL, NULL
+    -- 99-100: costratingoverridecomment, sellratingoverridecomment (均 NOT NULL→模板)
+    t.jr_costratingoverridecomment, t.jr_sellratingoverridecomment
 FROM JobCharge t
 WHERE t.jr_pk = @templatePk
 ";
 
         public async Task<List<string>> GenerateDraft(GenerateDraftInput input)
         {
-            if (input?.pks == null || input.pks.Count == 0)
+            var created = await BuildInvoicesAsync(input?.pks, input?.chargeType);
+            return created.Select(x => x.invNo).ToList();
+        }
+
+        /// <summary>
+        /// 按 结算单位+币种 分组，为选中的 JobCharge 生成草稿 AccTransactionHeader + Lines
+        /// （ah_postdate = NULL，状态 draft），并回填 jr_al_arline / jr_al_apline。
+        /// GenerateDraft 与 PostCharge 共用；返回新建的 (发票头 ah_pk, 发票号) 列表。
+        /// </summary>
+        private async Task<List<(string ahPk, string invNo)>> BuildInvoicesAsync(List<string> pks, string chargeType)
+        {
+            if (pks == null || pks.Count == 0)
                 throw new Exception("pks cannot be empty.");
-            var isAr = string.Equals(input.chargeType, "AR", StringComparison.OrdinalIgnoreCase);
-            var isAp = string.Equals(input.chargeType, "AP", StringComparison.OrdinalIgnoreCase);
+            var isAr = string.Equals(chargeType, "AR", StringComparison.OrdinalIgnoreCase);
+            var isAp = string.Equals(chargeType, "AP", StringComparison.OrdinalIgnoreCase);
             if (!isAr && !isAp)
                 throw new Exception("chargeType must be AR or AP.");
 
@@ -1326,7 +1588,7 @@ WHERE t.jr_pk = @templatePk
 
             // 加载选中且该侧尚未开票(link IS NULL)的费用 + 所属作业/运单上下文
             var loadDp = new DynamicParameters();
-            loadDp.Add("pks", input.pks);
+            loadDp.Add("pks", pks);
             var charges = (await _appSqlServerRepository.QueryAsync<ChargeDraftRow>($@"
 SELECT
     jr.jr_pk        AS jr_pk,
@@ -1355,7 +1617,7 @@ WHERE jr.jr_pk IN @pks
 ", loadDp)).ToList();
 
             if (charges.Count == 0)
-                return new List<string>();
+                return new List<(string ahPk, string invNo)>();
 
             var shpPk = charges[0].shp_pk;
 
@@ -1403,7 +1665,7 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
             var sign = isAr ? 1m : -1m; // AP 按负数存储
             var now = DateTime.UtcNow;
             var invoiceDate = now.Date;
-            var createdInvoiceNos = new List<string>();
+            var created = new List<(string ahPk, string invNo)>();
 
             // 按 结算单位 + 币种 分组，每组一个草稿发票
             var groups = charges.GroupBy(x => new { Party = x.party_oh ?? "", Ccy = x.currency ?? "" });
@@ -1412,9 +1674,9 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
             {
                 var items = g.OrderBy(x => x.jr_displaysequence).ToList();
                 var invNo = $"{consignRef}/{GenerateInvoiceSuffix(++maxIndex)}";
-                createdInvoiceNos.Add(invNo);
 
                 var ahPk = Guid.NewGuid().ToString();
+                created.Add((ahPk, invNo));
                 var first = items[0];
                 var amount = sign * items.Sum(x => Math.Abs(x.amount ?? 0));
                 var osTotal = sign * items.Sum(x => Math.Abs(x.os_amount ?? 0));
@@ -1481,27 +1743,27 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
                 }
             }
 
-            return createdInvoiceNos;
+            return created;
         }
 
         public async Task<int> PostCharge(PostChargeInput input)
         {
-            if (input?.ahPks == null || input.ahPks.Count == 0)
-                throw new Exception("ahPks cannot be empty.");
+            // 直接过账：选中的 JobCharge 先建发票头/行（复用草稿建头逻辑），再立即过账。
+            // 不再要求前端预先生成草稿并传入 ah_pk。
+            var created = await BuildInvoicesAsync(input?.pks, input?.chargeType);
+            if (created.Count == 0)
+                return 0;
+
+            var isAr = string.Equals(input.chargeType, "AR", StringComparison.OrdinalIgnoreCase);
+            var linkCol = isAr ? "jr_al_arline" : "jr_al_apline";
+            var statusCol = isAr ? "jr_arlinepostingstatus" : "jr_aplinepostingstatus";
 
             var now = DateTime.UtcNow;
             var posted = 0;
 
-            foreach (var ahPk in input.ahPks.Distinct())
+            foreach (var (ahPk, _) in created)
             {
                 if (string.IsNullOrWhiteSpace(ahPk)) continue;
-
-                var hDp = new DynamicParameters();
-                hDp.Add("ah", ahPk);
-                var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<HeaderPostRow>(
-                    "SELECT ah_pk, ah_ledger, ah_postdate FROM AccTransactionHeader WHERE ah_pk = @ah", hDp);
-                if (header == null) continue;
-                if (header.ah_postdate != null) continue; // 已过账，跳过
 
                 var upDp = new DynamicParameters();
                 upDp.Add("ah", ahPk);
@@ -1517,10 +1779,7 @@ WHERE ah_pk = @ah AND ah_postdate IS NULL", upDp);
                 await _appSqlServerRepository.ExecuteAsync(
                     "UPDATE AccTransactionLines SET al_postdate = @now WHERE al_ah = @ah", upDp);
 
-                // 3. 关联 JobCharge 过账状态置 posted（按 ledger 决定侧别）
-                var isAr = string.Equals(header.ah_ledger, "AR", StringComparison.OrdinalIgnoreCase);
-                var linkCol = isAr ? "jr_al_arline" : "jr_al_apline";
-                var statusCol = isAr ? "jr_arlinepostingstatus" : "jr_aplinepostingstatus";
+                // 3. 关联 JobCharge 过账状态置 posted（侧别由 chargeType 决定）
                 await _appSqlServerRepository.ExecuteAsync($@"
 UPDATE JobCharge SET {statusCol} = 'posted', jr_systemlastedittimeutc = @now
 WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", upDp);
@@ -1810,6 +2069,7 @@ WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", d
             p.Add("ge", ge);
             p.Add("code", c.jr_chargetype);
             p.Add("desc", c.jr_desc);
+            p.Add("invoiceType", c.jr_invoicetype);
             p.Add("ledger", isAr ? "AR" : "AP");
             p.Add("seq", seq);
             p.Add("now", now);

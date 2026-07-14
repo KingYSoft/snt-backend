@@ -154,11 +154,6 @@ WHERE jda.e2_parentid = @id
     AND jda.e2_parenttablecode = 'JS'
     AND jda.e2_addresstype IN ('CRD', 'CEG');
 
-SELECT t.*,
-    (SELECT RC_Code FROM RefContainer WHERE RC_PK = t.jc_rc) as rc_code
-FROM JobContainer t
-WHERE t.jc_js_fclbookingonlylink = @id;
-
 SELECT t.*
 FROM JobPackLines t
 WHERE t.jl_js = @id;
@@ -167,6 +162,18 @@ SELECT t.*
 FROM JobDocumentData t
 WHERE t.jdd_parentid = @id
     AND t.jdd_parenttablecode = 'SHP';
+
+SELECT t.XV_Name, t.XV_Data
+FROM GenCustomAddOnValue t
+WHERE t.Xv_ParentID = @id;
+
+-- FCL：集装箱(JobContainer) + 装箱明细(JobPackLines)，经中间表 JobContainerPackPivot 平铺
+-- 每行 = 一个集装箱携带其一条明细（J6_JC = jc_pk，J6_JL = jl_pk）
+SELECT jc.*, jl.*
+FROM JobPackLines jl
+INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
+INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
+WHERE jl.jl_js = @id;
 ";
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
@@ -176,9 +183,12 @@ WHERE t.jdd_parentid = @id
 
             var addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
             var orgAddrs = (await multi.ReadAsync<OrgAddressWithHeaderDtoOutput>()).ToList();
-            var containers = (await multi.ReadAsync<ShipmentDetailContainerDto>()).ToList();
             var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
             var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
+            var customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
+            // 平铺读取：jc.* 映射到集装箱，jl_pk 起的列映射到 pack_line
+            var containers = multi.Read<ShipmentContainerOutput, JobPackLinesDtoOutput, ShipmentContainerOutput>(
+                (c, l) => { c.pack_line = l; return c; }, splitOn: "jl_pk").ToList();
 
             // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
             var shipperTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CRD");
@@ -200,22 +210,10 @@ WHERE t.jdd_parentid = @id
             detail.delivery = addrs.FirstOrDefault(a => a.e2_addresstype == "DELIVERY");
 
             // 根据运输方式区分 FCL / 散货
+            // FCL：集装箱 + 装箱明细经中间表 JobContainerPackPivot 平铺，每行一个集装箱携带其一条明细
             if (detail.js_transportmode == "SEA" && detail.js_packingmode == "FCL")
             {
                 detail.containers_list = containers;
-                foreach (var ctr in detail.containers_list)
-                {
-                    var pl = packLines.FirstOrDefault(p => p.jl_js == detail.js_pk);
-                    if (pl != null)
-                    {
-                        ctr.jl_rh_nkcommoditycode = pl.jl_rh_nkcommoditycode;
-                        ctr.jl_actualweight = pl.jl_actualweight;
-                        ctr.jl_actualvolume = pl.jl_actualvolume;
-                        ctr.jl_packagecount = pl.jl_packagecount;
-                        ctr.jl_f3_nkpacktype = pl.jl_f3_nkpacktype;
-                        ctr.jl_description = pl.jl_description;
-                    }
-                }
             }
             else
             {
@@ -223,6 +221,7 @@ WHERE t.jdd_parentid = @id
             }
 
             detail.doc_data = docData;
+            detail.custom_values = customValues;
 
             return detail;
         }

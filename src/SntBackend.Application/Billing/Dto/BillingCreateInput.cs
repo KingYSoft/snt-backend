@@ -28,7 +28,10 @@ namespace SntBackend.Application.Billing.Dto
         /// <summary>AR 取销售侧，AP 取成本侧</summary>
         public string chargeType { get; set; }
 
-        /// <summary>业务费用代码 jr_chargetype</summary>
+        /// <summary>费用代码 pk（AccChargeCode.ac_pk，来源 ChargeCodeOptions）。存入 jr_ac，并据此回填分类码 jr_chargetype。</summary>
+        public string jr_ac { get; set; }
+
+        /// <summary>费用分类码 jr_chargetype（一般由后端按 jr_ac 自动回填，前端可不传）</summary>
         public string jr_chargetype { get; set; }
 
         /// <summary>jr_desc</summary>
@@ -57,5 +60,11 @@ namespace SntBackend.Application.Billing.Dto
 
         /// <summary>VAT class（AR=jr_a9_sellvatclass / AP=jr_a9_costvatclass）</summary>
         public string vat_class { get; set; }
+
+        /// <summary>发票类型 jr_invoicetype；为空时沿用模板行/原值</summary>
+        public string jr_invoicetype { get; set; }
+
+        /// <summary>分公司/分支 jr_gb（来源 BranchOptions 的 gb_pk）；新增时为空则继承 JobHeader.jh_gb，修改时为空则沿用原值</summary>
+        public string jr_gb { get; set; }
     }
 }

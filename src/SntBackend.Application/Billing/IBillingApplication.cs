@@ -62,7 +62,8 @@ namespace SntBackend.Application.Billing
         Task<List<string>> GenerateDraft(GenerateDraftInput input);
 
         /// <summary>
-        /// 过账：把草稿发票头/行的 postdate 置为当前日期，并把关联 JobCharge 的过账状态置为 posted。
+        /// 直接过账：按 结算单位+币种 为选中的 JobCharge 建发票头/行后立即过账
+        /// （postdate 置为当前日期，关联 JobCharge 过账状态置 posted），无需预先生成草稿。
         /// 返回过账成功的发票头数量。
         /// </summary>
         Task<int> PostCharge(PostChargeInput input);

@@ -15,7 +15,7 @@ namespace SntBackend.Application.Shipment.Dto
         public JobDocAddressDtoOutput pickup { get; set; }
         public JobDocAddressDtoOutput delivery { get; set; }
 
-        public List<JobPackLinesDtoOutput> containers_list { get; set; } = new();
+        public List<ShipmentContainerOutput> containers_list { get; set; } = new();
         public List<JobPackLinesDtoOutput> loose_list { get; set; } = new();
         public JobDocumentDataDtoOutput doc_data { get; set; }
 
@@ -41,6 +41,16 @@ namespace SntBackend.Application.Shipment.Dto
     public class OrgAddressWithHeaderDtoOutput : OrgAddressDtoOutput
     {
         public string oh_fullname { get; set; }
+    }
+
+    /// <summary>
+    /// 集装箱（JobContainer）+ 该行对应的装箱明细（JobPackLines）
+    /// 经中间表 JobContainerPackPivot 平铺：每行 = 一个集装箱携带其一条明细
+    /// （J6_JC = JC_PK，J6_JL = JL_PK）
+    /// </summary>
+    public class ShipmentContainerOutput : JobContainerDtoOutput
+    {
+        public JobPackLinesDtoOutput pack_line { get; set; }
     }
 
     /// <summary>

@@ -166,6 +166,14 @@ WHERE t.jdd_parentid = @id
 SELECT t.XV_Name, t.XV_Data
 FROM GenCustomAddOnValue t
 WHERE t.Xv_ParentID = @id;
+
+-- FCL：集装箱(JobContainer) + 装箱明细(JobPackLines)，经中间表 JobContainerPackPivot 平铺
+-- 每行 = 一个集装箱携带其一条明细（J6_JC = jc_pk，J6_JL = jl_pk）
+SELECT jc.*, jl.*
+FROM JobPackLines jl
+INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
+INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
+WHERE jl.jl_js = @id;
 ";
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
@@ -178,6 +186,9 @@ WHERE t.Xv_ParentID = @id;
             var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
             var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
             var customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
+            // 平铺读取：jc.* 映射到集装箱，jl_pk 起的列映射到 pack_line
+            var containers = multi.Read<ShipmentContainerOutput, JobPackLinesDtoOutput, ShipmentContainerOutput>(
+                (c, l) => { c.pack_line = l; return c; }, splitOn: "jl_pk").ToList();
 
             // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
             var shipperTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CRD");
@@ -198,10 +209,11 @@ WHERE t.Xv_ParentID = @id;
             detail.pickup = addrs.FirstOrDefault(a => a.e2_addresstype == "PICKUP");
             detail.delivery = addrs.FirstOrDefault(a => a.e2_addresstype == "DELIVERY");
 
-            // 根据运输方式区分 FCL / 散货，集装箱与散货均取自 JobPackLines
+            // 根据运输方式区分 FCL / 散货
+            // FCL：集装箱 + 装箱明细经中间表 JobContainerPackPivot 平铺，每行一个集装箱携带其一条明细
             if (detail.js_transportmode == "SEA" && detail.js_packingmode == "FCL")
             {
-                detail.containers_list = packLines;
+                detail.containers_list = containers;
             }
             else
             {

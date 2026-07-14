@@ -154,11 +154,6 @@ WHERE jda.e2_parentid = @id
     AND jda.e2_parenttablecode = 'JS'
     AND jda.e2_addresstype IN ('CRD', 'CEG');
 
-SELECT t.*,
-    (SELECT RC_Code FROM RefContainer WHERE RC_PK = t.jc_rc) as rc_code
-FROM JobContainer t
-WHERE t.jc_js_fclbookingonlylink = @id;
-
 SELECT t.*
 FROM JobPackLines t
 WHERE t.jl_js = @id;
@@ -167,6 +162,10 @@ SELECT t.*
 FROM JobDocumentData t
 WHERE t.jdd_parentid = @id
     AND t.jdd_parenttablecode = 'SHP';
+
+SELECT t.XV_Name, t.XV_Data
+FROM GenCustomAddOnValue t
+WHERE t.Xv_ParentID = @id;
 ";
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
@@ -176,9 +175,9 @@ WHERE t.jdd_parentid = @id
 
             var addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
             var orgAddrs = (await multi.ReadAsync<OrgAddressWithHeaderDtoOutput>()).ToList();
-            var containers = (await multi.ReadAsync<ShipmentDetailContainerDto>()).ToList();
             var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
             var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
+            var customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
 
             // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
             var shipperTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CRD");
@@ -199,23 +198,10 @@ WHERE t.jdd_parentid = @id
             detail.pickup = addrs.FirstOrDefault(a => a.e2_addresstype == "PICKUP");
             detail.delivery = addrs.FirstOrDefault(a => a.e2_addresstype == "DELIVERY");
 
-            // 根据运输方式区分 FCL / 散货
+            // 根据运输方式区分 FCL / 散货，集装箱与散货均取自 JobPackLines
             if (detail.js_transportmode == "SEA" && detail.js_packingmode == "FCL")
             {
-                detail.containers_list = containers;
-                foreach (var ctr in detail.containers_list)
-                {
-                    var pl = packLines.FirstOrDefault(p => p.jl_js == detail.js_pk);
-                    if (pl != null)
-                    {
-                        ctr.jl_rh_nkcommoditycode = pl.jl_rh_nkcommoditycode;
-                        ctr.jl_actualweight = pl.jl_actualweight;
-                        ctr.jl_actualvolume = pl.jl_actualvolume;
-                        ctr.jl_packagecount = pl.jl_packagecount;
-                        ctr.jl_f3_nkpacktype = pl.jl_f3_nkpacktype;
-                        ctr.jl_description = pl.jl_description;
-                    }
-                }
+                detail.containers_list = packLines;
             }
             else
             {
@@ -223,6 +209,7 @@ WHERE t.jdd_parentid = @id
             }
 
             detail.doc_data = docData;
+            detail.custom_values = customValues;
 
             return detail;
         }

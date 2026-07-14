@@ -1,3 +1,4 @@
+using System;
 using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Billing;
@@ -210,8 +211,16 @@ public class BillingController : SntBackendControllerBase
     [NoToken]
     public async Task<JsonResponse<int>> PostCharge([FromBody] PostChargeInput input)
     {
-        var result = await _billingApplication.PostCharge(input);
-        return new JsonResponse<int> { Data = result };
+        try
+        {
+            var result = await _billingApplication.PostCharge(input);
+            return new JsonResponse<int> { Data = result };
+        }
+        catch (Exception ex)
+        {
+            // 过账失败：把错误信息返回前端
+            return new JsonResponse<int>(false, ex.Message);
+        }
     }
 
     /// <summary>

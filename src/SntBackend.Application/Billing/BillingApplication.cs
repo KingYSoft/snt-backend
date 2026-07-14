@@ -1558,10 +1558,21 @@ WHERE t.jr_pk = @templatePk
 
         public async Task<List<string>> GenerateDraft(GenerateDraftInput input)
         {
-            if (input?.pks == null || input.pks.Count == 0)
+            var created = await BuildInvoicesAsync(input?.pks, input?.chargeType);
+            return created.Select(x => x.invNo).ToList();
+        }
+
+        /// <summary>
+        /// 按 结算单位+币种 分组，为选中的 JobCharge 生成草稿 AccTransactionHeader + Lines
+        /// （ah_postdate = NULL，状态 draft），并回填 jr_al_arline / jr_al_apline。
+        /// GenerateDraft 与 PostCharge 共用；返回新建的 (发票头 ah_pk, 发票号) 列表。
+        /// </summary>
+        private async Task<List<(string ahPk, string invNo)>> BuildInvoicesAsync(List<string> pks, string chargeType)
+        {
+            if (pks == null || pks.Count == 0)
                 throw new Exception("pks cannot be empty.");
-            var isAr = string.Equals(input.chargeType, "AR", StringComparison.OrdinalIgnoreCase);
-            var isAp = string.Equals(input.chargeType, "AP", StringComparison.OrdinalIgnoreCase);
+            var isAr = string.Equals(chargeType, "AR", StringComparison.OrdinalIgnoreCase);
+            var isAp = string.Equals(chargeType, "AP", StringComparison.OrdinalIgnoreCase);
             if (!isAr && !isAp)
                 throw new Exception("chargeType must be AR or AP.");
 
@@ -1577,7 +1588,7 @@ WHERE t.jr_pk = @templatePk
 
             // 加载选中且该侧尚未开票(link IS NULL)的费用 + 所属作业/运单上下文
             var loadDp = new DynamicParameters();
-            loadDp.Add("pks", input.pks);
+            loadDp.Add("pks", pks);
             var charges = (await _appSqlServerRepository.QueryAsync<ChargeDraftRow>($@"
 SELECT
     jr.jr_pk        AS jr_pk,
@@ -1606,7 +1617,7 @@ WHERE jr.jr_pk IN @pks
 ", loadDp)).ToList();
 
             if (charges.Count == 0)
-                return new List<string>();
+                return new List<(string ahPk, string invNo)>();
 
             var shpPk = charges[0].shp_pk;
 
@@ -1654,7 +1665,7 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
             var sign = isAr ? 1m : -1m; // AP 按负数存储
             var now = DateTime.UtcNow;
             var invoiceDate = now.Date;
-            var createdInvoiceNos = new List<string>();
+            var created = new List<(string ahPk, string invNo)>();
 
             // 按 结算单位 + 币种 分组，每组一个草稿发票
             var groups = charges.GroupBy(x => new { Party = x.party_oh ?? "", Ccy = x.currency ?? "" });
@@ -1663,9 +1674,9 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
             {
                 var items = g.OrderBy(x => x.jr_displaysequence).ToList();
                 var invNo = $"{consignRef}/{GenerateInvoiceSuffix(++maxIndex)}";
-                createdInvoiceNos.Add(invNo);
 
                 var ahPk = Guid.NewGuid().ToString();
+                created.Add((ahPk, invNo));
                 var first = items[0];
                 var amount = sign * items.Sum(x => Math.Abs(x.amount ?? 0));
                 var osTotal = sign * items.Sum(x => Math.Abs(x.os_amount ?? 0));
@@ -1732,27 +1743,27 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
                 }
             }
 
-            return createdInvoiceNos;
+            return created;
         }
 
         public async Task<int> PostCharge(PostChargeInput input)
         {
-            if (input?.ahPks == null || input.ahPks.Count == 0)
-                throw new Exception("ahPks cannot be empty.");
+            // 直接过账：选中的 JobCharge 先建发票头/行（复用草稿建头逻辑），再立即过账。
+            // 不再要求前端预先生成草稿并传入 ah_pk。
+            var created = await BuildInvoicesAsync(input?.pks, input?.chargeType);
+            if (created.Count == 0)
+                return 0;
+
+            var isAr = string.Equals(input.chargeType, "AR", StringComparison.OrdinalIgnoreCase);
+            var linkCol = isAr ? "jr_al_arline" : "jr_al_apline";
+            var statusCol = isAr ? "jr_arlinepostingstatus" : "jr_aplinepostingstatus";
 
             var now = DateTime.UtcNow;
             var posted = 0;
 
-            foreach (var ahPk in input.ahPks.Distinct())
+            foreach (var (ahPk, _) in created)
             {
                 if (string.IsNullOrWhiteSpace(ahPk)) continue;
-
-                var hDp = new DynamicParameters();
-                hDp.Add("ah", ahPk);
-                var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<HeaderPostRow>(
-                    "SELECT ah_pk, ah_ledger, ah_postdate FROM AccTransactionHeader WHERE ah_pk = @ah", hDp);
-                if (header == null) continue;
-                if (header.ah_postdate != null) continue; // 已过账，跳过
 
                 var upDp = new DynamicParameters();
                 upDp.Add("ah", ahPk);
@@ -1768,10 +1779,7 @@ WHERE ah_pk = @ah AND ah_postdate IS NULL", upDp);
                 await _appSqlServerRepository.ExecuteAsync(
                     "UPDATE AccTransactionLines SET al_postdate = @now WHERE al_ah = @ah", upDp);
 
-                // 3. 关联 JobCharge 过账状态置 posted（按 ledger 决定侧别）
-                var isAr = string.Equals(header.ah_ledger, "AR", StringComparison.OrdinalIgnoreCase);
-                var linkCol = isAr ? "jr_al_arline" : "jr_al_apline";
-                var statusCol = isAr ? "jr_arlinepostingstatus" : "jr_aplinepostingstatus";
+                // 3. 关联 JobCharge 过账状态置 posted（侧别由 chargeType 决定）
                 await _appSqlServerRepository.ExecuteAsync($@"
 UPDATE JobCharge SET {statusCol} = 'posted', jr_systemlastedittimeutc = @now
 WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", upDp);

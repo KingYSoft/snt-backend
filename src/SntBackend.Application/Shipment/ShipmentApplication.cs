@@ -167,9 +167,10 @@ SELECT t.XV_Name, t.XV_Data
 FROM GenCustomAddOnValue t
 WHERE t.Xv_ParentID = @id;
 
--- FCL：集装箱(JobContainer) + 装箱明细(JobPackLines)，经中间表 JobContainerPackPivot 平铺
--- 每行 = 一个集装箱携带其一条明细（J6_JC = jc_pk，J6_JL = jl_pk）
-SELECT jc.*, jl.*
+-- FCL：装箱明细(JobPackLines，货物) + 集装箱(JobContainer)，经中间表 JobContainerPackPivot 平铺
+-- 每行 = 一条货物明细携带其所属集装箱（J6_JL = jl_pk，J6_JC = jc_pk）
+-- 一个集装箱含两条货物明细 => 返回两行，两行的集装箱相同
+SELECT jl.*, jc.*
 FROM JobPackLines jl
 INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
 INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
@@ -186,9 +187,9 @@ WHERE jl.jl_js = @id;
             var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
             var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
             var customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
-            // 平铺读取：jc.* 映射到集装箱，jl_pk 起的列映射到 pack_line
-            var containers = multi.Read<ShipmentContainerOutput, JobPackLinesDtoOutput, ShipmentContainerOutput>(
-                (c, l) => { c.pack_line = l; return c; }, splitOn: "jl_pk").ToList();
+            // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container
+            var containers = multi.Read<ShipmentContainerOutput, JobContainerDtoOutput, ShipmentContainerOutput>(
+                (l, c) => { l.container = c; return l; }, splitOn: "jc_pk").ToList();
 
             // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
             var shipperTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CRD");

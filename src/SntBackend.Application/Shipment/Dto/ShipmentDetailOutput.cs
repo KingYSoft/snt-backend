@@ -44,13 +44,14 @@ namespace SntBackend.Application.Shipment.Dto
     }
 
     /// <summary>
-    /// 集装箱（JobContainer）+ 该行对应的装箱明细（JobPackLines）
-    /// 经中间表 JobContainerPackPivot 平铺：每行 = 一个集装箱携带其一条明细
-    /// （J6_JC = JC_PK，J6_JL = JL_PK）
+    /// 装箱明细（JobPackLines，货物信息）+ 该行对应的集装箱（JobContainer）
+    /// 经中间表 JobContainerPackPivot 平铺：每行 = 一条货物明细携带其所属集装箱
+    /// （J6_JL = JL_PK，J6_JC = JC_PK）。
+    /// 例：一个集装箱含两条货物明细 => 返回两行，两行的 container 相同。
     /// </summary>
-    public class ShipmentContainerOutput : JobContainerDtoOutput
+    public class ShipmentContainerOutput : JobPackLinesDtoOutput
     {
-        public JobPackLinesDtoOutput pack_line { get; set; }
+        public JobContainerDtoOutput container { get; set; }
     }
 
     /// <summary>

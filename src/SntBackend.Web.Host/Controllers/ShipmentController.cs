@@ -55,4 +55,15 @@ public class ShipmentController : SntBackendControllerBase
             return new JsonResponse<ShipmentDetailOutput>(false, $"错误: {ex.Message}\n\n堆栈: {ex.StackTrace}");
         }
     }
+
+    /// <summary>
+    /// 查询 Consol 运输路线（JobConsolTransport）
+    /// </summary>
+    [HttpGet]
+    [Route("query-consol-transport")]
+    public async Task<JsonResponse<ShipmentQueryConsolTransportOutput>> QueryConsolTransport([FromQuery] ShipmentQueryConsolTransportInput input)
+    {
+        var result = await _shipmentApplication.QueryConsolTransport(input);
+        return new JsonResponse<ShipmentQueryConsolTransportOutput> { Data = result };
+    }
 }

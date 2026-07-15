@@ -226,5 +226,34 @@ WHERE jl.jl_js = @id;
 
             return detail;
         }
+
+        public async Task<ShipmentQueryConsolTransportOutput> QueryConsolTransport(ShipmentQueryConsolTransportInput input)
+        {
+            var output = new ShipmentQueryConsolTransportOutput();
+            input ??= new ShipmentQueryConsolTransportInput();
+            if (string.IsNullOrWhiteSpace(input.consol_pk))
+            {
+                return output;
+            }
+
+            var list = await _appSqlServerRepository.QueryAsync<ShipmentQueryConsolTransportDto>(@"
+SELECT
+  c.jk_uniqueconsignref,
+  t.*
+FROM
+  JobConsolTransport t
+  INNER JOIN JobConsol c ON c.jk_pk = t.jw_parentguid
+WHERE
+  1 = 1
+  AND t.jw_isvalid = 1
+  AND t.jw_parenttype = 'CON'
+  AND t.jw_parentguid = @consol_pk
+ORDER BY
+  t.jw_legorder ASC
+", new { input.consol_pk });
+
+            output.list = list.ToList();
+            return output;
+        }
     }
 }

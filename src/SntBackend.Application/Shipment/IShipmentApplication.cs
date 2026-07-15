@@ -7,5 +7,6 @@ namespace SntBackend.Application.Shipment
     {
         Task<ShipmentTblOutput> Tbl(ShipmentTblInput input);
         Task<ShipmentDetailOutput> Detail(string id);
+        Task<ShipmentQueryConsolTransportOutput> QueryConsolTransport(ShipmentQueryConsolTransportInput input);
     }
 }

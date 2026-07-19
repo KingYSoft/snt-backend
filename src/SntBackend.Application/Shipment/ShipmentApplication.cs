@@ -231,7 +231,7 @@ WHERE jl.jl_js = @id;
         {
             var output = new ShipmentQueryConsolTransportOutput();
             input ??= new ShipmentQueryConsolTransportInput();
-            if (string.IsNullOrWhiteSpace(input.consol_pk))
+            if (string.IsNullOrWhiteSpace(input.shp_pk))
             {
                 return output;
             }
@@ -241,16 +241,17 @@ SELECT
   c.jk_uniqueconsignref,
   t.*
 FROM
-  JobConsolTransport t
-  INNER JOIN JobConsol c ON c.jk_pk = t.jw_parentguid
+  JobConShipLink l
+  INNER JOIN JobConsol c ON c.jk_pk = l.jn_jk
+  INNER JOIN JobConsolTransport t ON t.jw_parentguid = c.jk_pk
 WHERE
   1 = 1
+  AND l.jn_js = @shp_pk
   AND t.jw_isvalid = 1
   AND t.jw_parenttype = 'CON'
-  AND t.jw_parentguid = @consol_pk
 ORDER BY
   t.jw_legorder ASC
-", new { input.consol_pk });
+", new { input.shp_pk });
 
             output.list = list.ToList();
             return output;

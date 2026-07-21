@@ -1737,9 +1737,10 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
                     linkDp.Add("alpk", alPk);
                     linkDp.Add("jrpk", c.jr_pk);
                     var linkCol = isAr ? "jr_al_arline" : "jr_al_apline";
-                    var statusCol = isAr ? "jr_arlinepostingstatus" : "jr_aplinepostingstatus";
+                    // 不写 jr_*linepostingstatus：该列为可空 varchar(3)，'draft'/'posted' 超长且 snt 现有数据不使用；
+                    // 状态由 jr_al_arline(是否已开票) + AccTransactionHeader.ah_postdate(是否已过账) 推导
                     await _appSqlServerRepository.ExecuteAsync(
-                        $"UPDATE JobCharge SET {linkCol} = @alpk, {statusCol} = 'draft' WHERE jr_pk = @jrpk", linkDp);
+                        $"UPDATE JobCharge SET {linkCol} = @alpk WHERE jr_pk = @jrpk", linkDp);
                 }
             }
 
@@ -1756,7 +1757,6 @@ WHERE jh.jh_parentid = @shpPk AND jh.jh_parenttablecode = 'JS'
 
             var isAr = string.Equals(input.chargeType, "AR", StringComparison.OrdinalIgnoreCase);
             var linkCol = isAr ? "jr_al_arline" : "jr_al_apline";
-            var statusCol = isAr ? "jr_arlinepostingstatus" : "jr_aplinepostingstatus";
 
             var now = DateTime.UtcNow;
             var posted = 0;
@@ -1779,9 +1779,9 @@ WHERE ah_pk = @ah AND ah_postdate IS NULL", upDp);
                 await _appSqlServerRepository.ExecuteAsync(
                     "UPDATE AccTransactionLines SET al_postdate = @now WHERE al_ah = @ah", upDp);
 
-                // 3. 关联 JobCharge 过账状态置 posted（侧别由 chargeType 决定）
+                // 3. 触碰关联 JobCharge 的最后编辑时间（不写 jr_*linepostingstatus：见 BuildInvoicesAsync 说明）
                 await _appSqlServerRepository.ExecuteAsync($@"
-UPDATE JobCharge SET {statusCol} = 'posted', jr_systemlastedittimeutc = @now
+UPDATE JobCharge SET jr_systemlastedittimeutc = @now
 WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", upDp);
 
                 posted++;
@@ -1974,9 +1974,9 @@ WHERE al_ah = @ah AND al_pk = (SELECT {linkCol} FROM JobCharge WHERE jr_pk = @jr
                         lp.Add("templatePk", templateLinePk);
                         await _appSqlServerRepository.ExecuteAsync(InsertDraftLineSql, lp);
 
-                        // 回填链接
+                        // 回填链接（不写 jr_*linepostingstatus：见 BuildInvoicesAsync 说明）
                         await _appSqlServerRepository.ExecuteAsync(
-                            $"UPDATE JobCharge SET {linkCol} = @al, {statusCol} = 'draft' WHERE jr_pk = @jr",
+                            $"UPDATE JobCharge SET {linkCol} = @al WHERE jr_pk = @jr",
                             new DynamicParameters(new { al = alPk, jr = jrPk }));
                         affected++;
                     }
@@ -2135,13 +2135,13 @@ SELECT
     @invdate, @invdate, @amt, @gst, @wht,
     @ostotal, @ccy, @rate,
     t.ah_ageperiod, t.ah_postperiod, NULL,
-    t.ah_transactioncategory, NULL, t.ah_receipttype,
+    t.ah_transactioncategory, t.ah_chequeorreference, t.ah_receipttype,
     t.ah_cashbasisgstindicator, t.ah_cashbasisgstrealisedtogl,
     t.ah_chequedrawer, t.ah_drawerbank, t.ah_drawerbranch,
-    0, NULL, NULL,
+    0, t.ah_consolidatedinvoiceref, NULL,
     0, 0, NULL,
     0, @amt, 0, t.ah_posttogl,
-    NULL, 0,
+    t.ah_receiptbatchno, 0,
     t.ah_invoiceterm, t.ah_invoicetermdays, NULL, t.ah_requisitionstatus,
     0, 0, 0,
     0, 0, 0, 0,
@@ -2151,16 +2151,16 @@ SELECT
     @now, @user,
     NULL, @user,
     t.ah_agreedpaymentmethodoverride, NULL,
-    NULL, NULL, NULL,
+    t.ah_gs_nkauditedby, t.ah_gs_nkcashier, t.ah_invoicepaymentreferencecode,
     0, 0, t.ah_autoversion,
-    NULL, NULL, NULL,
-    NULL, NULL,
+    NULL, t.ah_matchstatus, t.ah_matchstatusreasoncode,
+    NULL, t.ah_originaltransactionnum,
     t.ah_placeofsupply, t.ah_placeofsupplytype, t.ah_xd_compliancebook,
     @amt, @jobnum,
     NULL, NULL,
     t.ah_gb_taxbranch, NULL, NULL,
     0, @ostotal, t.ah_overrideexchangerate,
-    @gb, @ge
+    t.ah_systemcreatebranch, t.ah_systemcreatedepartment
 FROM AccTransactionHeader t
 WHERE t.ah_pk = @templatePk
 ";
@@ -2180,14 +2180,14 @@ INSERT INTO AccTransactionLines (
     al_placeofsupplytype, al_supplytype, al_gb_taxbranch
 )
 SELECT
-    @alpk, @altype, @seq, @desc, @localamt, @gstcode, @gst, NULL,
+    @alpk, @altype, @seq, @desc, @localamt, @gstcode, @gst, t.al_gstvatbasis,
     @vat, @whtcode, 0, 1, @osamt, @osamt, @osamt,
     @ccy, @rate, 0, t.al_postperiod, NULL,
     t.al_posttogl, t.al_reverseperiod, NULL, t.al_reversetogl, 0,
     0, 0, 0, t.al_revrecognitiontype, @jh,
     t.al_ac, @ge, @gb, t.al_ag, @oh, t.al_ag_percentof, 0, @ah, @gc,
     @now, @user, NULL, @user,
-    NULL, 0, NULL, 0, 0,
+    t.al_govtchargecode, 0, NULL, 0, 0,
     0, 0, t.al_autoversion, t.al_jbb, t.al_placeofsupply,
     t.al_placeofsupplytype, t.al_supplytype, NULL
 FROM AccTransactionLines t

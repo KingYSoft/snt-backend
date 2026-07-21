@@ -1272,7 +1272,7 @@ ORDER BY gc.gc_code
         //  ⚠ AP 侧金额按 snt 习惯写为负数（与现有 AP 数据一致），如与实际数据不符可调整 sign。
         // ============================================================================
 
-        private const string SysUser = "system";
+        private const string SysUser = "sys";
 
         /// <summary>0->A 1->B ... 25->Z 26->AA ...</summary>
         private static string GenerateInvoiceSuffix(int index)

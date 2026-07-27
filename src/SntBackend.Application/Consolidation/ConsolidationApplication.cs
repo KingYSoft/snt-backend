@@ -234,8 +234,10 @@ SELECT o.oa_pk, o.oa_isvalid, o.oa_isactive, o.oa_code, o.oa_companynameoverride
        o.oa_systemlastedittimeutc, o.oa_systemlastedituser,
        o.oa_language,
        CAST(o.oa_geolocation AS NVARCHAR(MAX)) AS oa_geolocation,
-       o.oa_jobloadingduration, o.oa_autoversion
+       o.oa_jobloadingduration, o.oa_autoversion,
+       oh.oh_fullname AS oh_fullname
 FROM OrgAddress o
+LEFT JOIN OrgHeader oh ON oh.oh_pk = o.oa_oh
 WHERE o.OA_PK IN (
     SELECT t.e2_oa_address
     FROM JobDocAddress t
@@ -267,7 +269,7 @@ WHERE t.jc_jk = @id
                     if (detail == null) return null;
 
                     var agents = (await multi.ReadAsync<ConsolidationAgentOutput>()).ToList();
-                    var orgAddresses = (await multi.ReadAsync<OrgAddressDtoOutput>()).ToList();
+                    var orgAddresses = (await multi.ReadAsync<ConsolidationOrgAddressOutput>()).ToList();
 
                     detail.local_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CEC");
                     detail.overseas_agent = agents.FirstOrDefault(a => a.e2_addresstype == "CIC");

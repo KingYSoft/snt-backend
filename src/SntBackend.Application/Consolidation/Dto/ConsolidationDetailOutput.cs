@@ -3,9 +3,17 @@ using System.Collections.Generic;
 
 namespace SntBackend.Application.Consolidation.Dto
 {
+    /// <summary>
+    /// OrgAddress 扩展 DTO（包含 OrgHeader 信息）
+    /// </summary>
+    public class ConsolidationOrgAddressOutput : OrgAddressDtoOutput
+    {
+        public string oh_fullname { get; set; }
+    }
+
     public class ConsolidationAgentOutput : JobDocAddressDtoOutput
     {
-        public OrgAddressDtoOutput org_address { get; set; }
+        public ConsolidationOrgAddressOutput org_address { get; set; }
     }
 
     public class ConsolidationDetailOutput : JobConsolDtoOutput

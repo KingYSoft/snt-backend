@@ -68,12 +68,14 @@ namespace SntBackend.Web.Host
 
 
             appFolders.FileUploadFolder = Path.Combine(_env.WebRootPath, "files", "uploads");
+            appFolders.FilePdfFolder = Path.Combine(_env.WebRootPath, "files", "pdf");
             appFolders.TempFileUploadFolder = Path.Combine(_env.WebRootPath, "temps", "uploads");
             appFolders.TempFileDownloadFolder = Path.Combine(_env.WebRootPath, "temps", "downloads");
 
             try
             {
                 DirectoryHelper.CreateIfNotExists(appFolders.FileUploadFolder);
+                DirectoryHelper.CreateIfNotExists(appFolders.FilePdfFolder);
                 DirectoryHelper.CreateIfNotExists(appFolders.TempFileUploadFolder);
                 DirectoryHelper.CreateIfNotExists(appFolders.TempFileDownloadFolder);
             }

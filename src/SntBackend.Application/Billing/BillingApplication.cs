@@ -1,10 +1,14 @@
 using Dapper;
+using Facade;
 using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Billing.Dto.MatchTransaction;
+using SntBackend.Application.Pdf;
 using SntBackend.Application.Po.Dto;
+using SntBackend.DomainService.Folders;
 using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -13,10 +17,20 @@ namespace SntBackend.Application.Billing
     public class BillingApplication : SntBackendApplicationBase, IBillingApplication
     {
         private readonly IAppSqlServerRepository _appSqlServerRepository;
+        private readonly InvoicePdfDataProvider _invoicePdfDataProvider;
+        private readonly PlaywrightPdfGenerator _playwrightPdfGenerator;
+        private readonly IAppFolders _appFolders;
 
-        public BillingApplication(IAppSqlServerRepository appSqlServerRepository)
+        public BillingApplication(
+            IAppSqlServerRepository appSqlServerRepository,
+            InvoicePdfDataProvider invoicePdfDataProvider,
+            PlaywrightPdfGenerator playwrightPdfGenerator,
+            IAppFolders appFolders)
         {
             _appSqlServerRepository = appSqlServerRepository;
+            _invoicePdfDataProvider = invoicePdfDataProvider;
+            _playwrightPdfGenerator = playwrightPdfGenerator;
+            _appFolders = appFolders;
         }
 
         private static string TblBuildWhere(List<BillingTblFilterItem> filters, DynamicParameters dp)
@@ -149,7 +163,7 @@ INNER JOIN AccTransactionHeader t ON t.ah_pk = m.ap_ah
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_fullypaiddate IS NOT NULL
     AND t.ah_iscancelled = 0
-    AND t.ah_transactiontype IN ('REC', 'PAY')
+    AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
 ";
             var pageSql = @$"
@@ -163,7 +177,7 @@ INNER JOIN AccTransactionHeader t ON t.ah_pk = m.ap_ah
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_fullypaiddate IS NOT NULL
     AND t.ah_iscancelled = 0
-    AND t.ah_transactiontype IN ('REC', 'PAY')
+    AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
 ORDER BY m.ap_matchdate DESC, m.ap_pk DESC
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -597,7 +611,7 @@ WHERE ah_pk = @pk
 SELECT COUNT(*)
 FROM AccTransactionHeader t
 WHERE t.ah_iscancelled = 0
-    AND t.ah_transactiontype IN ('REC', 'PAY')
+    AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
 ";
             var pageSql = @$"
@@ -614,7 +628,7 @@ SELECT
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_iscancelled = 0
-    AND t.ah_transactiontype IN ('REC', 'PAY')
+    AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
 ORDER BY t.ah_invoicedate DESC, t.ah_pk DESC
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -2038,6 +2052,52 @@ WHERE ah_pk = @ah", new DynamicParameters(new { ah = input.ahPk, now }));
             return affected;
         }
 
+        /// <summary>
+        /// 发票打印：按发票号逐张装配渲染模型 → 拼 HTML → Playwright 出 PDF，
+        /// 文件落在 {wwwroot}/files/pdf/{yyyyMM}/ 下，返回相对访问路径。
+        /// </summary>
+        public async Task<GenerateInvoicePdfOutput> GenerateInvoicePdf(GenerateInvoicePdfInput input)
+        {
+            var invoiceNos = (input?.invoice_nos ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (invoiceNos.Count == 0)
+            {
+                throw new AppException("invoice_nos cannot be empty.");
+            }
+
+            var pdfRootFolder = string.IsNullOrWhiteSpace(_appFolders?.FilePdfFolder)
+                ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "files", "pdf")
+                : _appFolders.FilePdfFolder;
+
+            var output = new GenerateInvoicePdfOutput();
+            var now = DateTime.Now;
+
+            foreach (var invoiceNo in invoiceNos)
+            {
+                var model = await _invoicePdfDataProvider.BuildAsync(invoiceNo, input.ledger_type);
+                if (model == null)
+                {
+                    throw new AppException($"invoice not found: {invoiceNo}.");
+                }
+
+                var html = InvoicePdfTemplateFactory.BuildHtml(model);
+                var storage = PdfStoragePathBuilder.Build(pdfRootFolder, "INV", invoiceNo, now);
+                await _playwrightPdfGenerator.GenerateAsync(html, storage.FullPath);
+
+                output.results.Add(new InvoicePdfResult
+                {
+                    invoice_no = invoiceNo,
+                    pdf_path = storage.OutputRelativePath
+                });
+            }
+
+            return output;
+        }
+
         /// <summary>解锁某发票头下所有关联 JobCharge：清空该侧 jr_al_*line 与过账状态</summary>
         private async Task UnlinkChargesByHeaderAsync(string ahPk, string ledger, DateTime now)
         {
@@ -2048,7 +2108,7 @@ WHERE ah_pk = @ah", new DynamicParameters(new { ah = input.ahPk, now }));
             dp.Add("ah", ahPk);
             dp.Add("now", now);
             await _appSqlServerRepository.ExecuteAsync($@"
-UPDATE JobCharge SET {linkCol} = NULL, {statusCol} = NULL, jr_systemlastedittimeutc = @now
+UPDATE JobCharge SET {linkCol} = NULL, {statusCol} = '', jr_systemlastedittimeutc = @now
 WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", dp);
         }
 

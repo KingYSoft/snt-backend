@@ -15,5 +15,10 @@
         /// 文件上传后保存的路径 /files/uploads/
         /// </summary>
         string FileUploadFolder { get; }
+
+        /// <summary>
+        /// 生成的 PDF 保存路径 /files/pdf/
+        /// </summary>
+        string FilePdfFolder { get; }
     }
 }

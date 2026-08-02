@@ -270,4 +270,16 @@ public class BillingController : SntBackendControllerBase
         var result = await _billingApplication.EditDraftInvoice(input);
         return new JsonResponse<int> { Data = result };
     }
+
+    /// <summary>
+    /// 发票打印：按发票号批量生成 PDF，返回每张发票的 PDF 相对访问路径
+    /// </summary>
+    [HttpPost]
+    [Route("invoice/pdf")]
+    [NoToken]
+    public async Task<JsonResponse<GenerateInvoicePdfOutput>> GenerateInvoicePdf([FromBody] GenerateInvoicePdfInput input)
+    {
+        var result = await _billingApplication.GenerateInvoicePdf(input);
+        return new JsonResponse<GenerateInvoicePdfOutput> { Data = result };
+    }
 }

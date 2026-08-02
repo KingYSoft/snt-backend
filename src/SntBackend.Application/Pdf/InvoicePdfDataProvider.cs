@@ -125,6 +125,7 @@ SELECT TOP 1
     js.JS_UnitOfWeight  AS weight_unit,
     js.JS_ActualVolume  AS volume,
     js.JS_UnitOfVolume  AS volume_unit,
+    js.JS_ActualChargeable AS chargeable,
     js.JS_OuterPacks    AS packs
 FROM JobHeader jh
 LEFT JOIN JobShipment js ON js.JS_PK = jh.JH_ParentID AND jh.JH_ParentTableCode = 'JS'
@@ -244,7 +245,15 @@ SELECT TOP 1
     ah.AH_JobNumber                 AS ah_jobnumber,
     CAST(ah.AH_PK AS varchar(36))   AS ah_pk,
     CAST(ah.AH_OH AS varchar(36))   AS ah_oh,
-    CAST(ah.AH_JH AS varchar(36))   AS ah_jh,
+    -- 发票头的 ah_jh 约 20% 为空（多为 AP），此时回落到发票行的 al_jh，
+    -- 否则整块运输信息（船名/提单号/收发货人/重量体积）全空
+    COALESCE(
+        CAST(ah.AH_JH AS varchar(36)),
+        (SELECT TOP 1 CAST(al.AL_JH AS varchar(36))
+         FROM AccTransactionLines al
+         WHERE al.AL_AH = ah.AH_PK AND al.AL_JH IS NOT NULL
+         ORDER BY al.AL_Sequence)
+    )                               AS ah_jh,
     CAST(ah.AH_GB AS varchar(36))   AS ah_gb,
     CAST(ah.AH_GC AS varchar(36))   AS ah_gc,
     CAST(ah.AH_AB AS varchar(36))   AS ah_ab,
@@ -348,6 +357,9 @@ ORDER BY CASE WHEN ah.AH_TransactionNum = @invoiceNo THEN 0 ELSE 1 END,
 
                 GrossWeight = FormatQuantity(job?.weight, Trim(job?.weight_unit)),
                 Cbm = FormatQuantity(job?.volume, Trim(job?.volume_unit)),
+                // 计费重只有空运才是重量单位（KG），海运是计费吨，不带单位免得标错
+                ChargeableWeight = FormatQuantity(job?.chargeable,
+                    string.Equals(transportMode, "AIR", StringComparison.OrdinalIgnoreCase) ? Trim(job?.weight_unit) : null),
                 Packages = job?.packs > 0 ? job.packs.ToString() : null,
 
                 ContainerSealNos = containers.Count == 0
@@ -513,6 +525,7 @@ ORDER BY CASE WHEN ah.AH_TransactionNum = @invoiceNo THEN 0 ELSE 1 END,
             public string weight_unit { get; set; }
             public decimal? volume { get; set; }
             public string volume_unit { get; set; }
+            public decimal? chargeable { get; set; }
             public int? packs { get; set; }
         }
 

@@ -134,7 +134,6 @@ body, div, table, thead, tbody, tr, th, td, p {
             AppendPairItem(sb, isAir ? "HAWB:" : "HB/L NO:", model.HblNo);
             AppendPairItem(sb, "GROSS WEIGHT:", model.GrossWeight);
             AppendPairItem(sb, "CBM:", model.Cbm);
-            AppendPairItem(sb, "VOLUME WEIGHT:", model.VolumeWeight);
             AppendPairItem(sb, "CHARGEABLE:", model.ChargeableWeight);
             AppendPairItem(sb, "NO. OF PACKAGE:", model.Packages);
             sb.Append(@"            </div>

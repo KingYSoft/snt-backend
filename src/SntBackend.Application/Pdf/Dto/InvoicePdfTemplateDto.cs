@@ -80,9 +80,6 @@ namespace SntBackend.Application.Pdf.Dto
         /// <summary>体积。</summary>
         public string Cbm { get; set; }
 
-        /// <summary>体积重。</summary>
-        public string VolumeWeight { get; set; }
-
         /// <summary>计费重。</summary>
         public string ChargeableWeight { get; set; }
 

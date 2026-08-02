@@ -7,5 +7,6 @@ namespace SntBackend.DomainService.Folders
         public string TempFileUploadFolder { get; set; }
         public string TempFileDownloadFolder { get; set; }
         public string FileUploadFolder { get; set; }
+        public string FilePdfFolder { get; set; }
     }
 }

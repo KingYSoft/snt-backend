@@ -91,5 +91,11 @@ namespace SntBackend.Application.Billing
         /// 返回受影响的费用行数。
         /// </summary>
         Task<int> EditDraftInvoice(DraftInvoiceEditInput input);
+
+        /// <summary>
+        /// 发票打印：按发票号批量生成 PDF，一张发票一个文件。
+        /// 返回每张发票的 PDF 相对访问路径。
+        /// </summary>
+        Task<GenerateInvoicePdfOutput> GenerateInvoicePdf(GenerateInvoicePdfInput input);
     }
 }

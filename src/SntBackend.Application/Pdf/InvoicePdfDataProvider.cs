@@ -52,7 +52,11 @@ namespace SntBackend.Application.Pdf
             dp.Add("ccy", head.ah_rx_nktransactioncurrency);
             dp.Add("createUser", head.ah_systemcreateuser);
 
-            var sql = @"
+            // 运输信息（第 4~7 段）按作业头锚点分两套：挂运单取 JobShipment，挂合单取 JobConsol
+            var isConsolAnchor = string.Equals(head.jh_parenttablecode?.Trim(), "JK", StringComparison.OrdinalIgnoreCase);
+            var contextSql = isConsolAnchor ? ConsolContextSql : ShipmentContextSql;
+
+            var sql = $@"
 -- 1) 发票行 + 费用代码
 SELECT
     al.AL_Sequence                  AS seq,
@@ -113,6 +117,61 @@ FROM (SELECT 1 AS x) t
 LEFT JOIN GlbBranch  gb ON gb.GB_PK = @gbPk
 LEFT JOIN GlbCompany gc ON gc.GC_PK = COALESCE(@gcPk, gb.GB_GC);
 
+{contextSql}
+
+-- 8) 收款银行：发票指定 > 分公司+币种 > 公司+币种
+--    账号取 AB_FullAccountNumber / AB_AccountNum（AB_AccountNumber 在本库全为空）
+SELECT TOP 1 bank.*
+FROM (
+    SELECT 0 AS priority, ab.AB_BankAccountName AS beneficiary, ab.AB_BankName AS bank_name,
+           ab.AB_BankAddress AS bank_address, ab.AB_SWIFT AS swift,
+           COALESCE(NULLIF(ab.AB_FullAccountNumber, ''), NULLIF(ab.AB_AccountNum, ''), ab.AB_AccountNumber) AS account_no
+    FROM AccBankAccount ab
+    WHERE ab.AB_PK = @abPk
+    UNION ALL
+    SELECT 1, ab.AB_BankAccountName, ab.AB_BankName, ab.AB_BankAddress, ab.AB_SWIFT,
+           COALESCE(NULLIF(ab.AB_FullAccountNumber, ''), NULLIF(ab.AB_AccountNum, ''), ab.AB_AccountNumber)
+    FROM AccBankAccount ab
+    WHERE ab.AB_IsActive = 1
+        AND ab.AB_GB = @gbPk
+        AND ab.AB_RX_NKAccountCurrency = @ccy
+        AND (ISNULL(ab.AB_BankName, '') <> '' OR ISNULL(ab.AB_SWIFT, '') <> '')
+    UNION ALL
+    SELECT 2, ab.AB_BankAccountName, ab.AB_BankName, ab.AB_BankAddress, ab.AB_SWIFT,
+           COALESCE(NULLIF(ab.AB_FullAccountNumber, ''), NULLIF(ab.AB_AccountNum, ''), ab.AB_AccountNumber)
+    FROM AccBankAccount ab
+    WHERE ab.AB_IsActive = 1
+        AND ab.AB_GC = @gcPk
+        AND ab.AB_RX_NKAccountCurrency = @ccy
+        AND (ISNULL(ab.AB_BankName, '') <> '' OR ISNULL(ab.AB_SWIFT, '') <> '')
+) bank
+ORDER BY bank.priority;
+
+-- 9) 签发人
+SELECT TOP 1 gs.GS_FullName AS full_name
+FROM GlbStaff gs
+WHERE gs.GS_Code = @createUser;
+";
+
+            using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
+
+            var lines = (await multi.ReadAsync<LineRow>()).ToList();
+            var party = await multi.ReadFirstOrDefaultAsync<PartyRow>();
+            var letterhead = await multi.ReadFirstOrDefaultAsync<LetterheadRow>();
+            var job = await multi.ReadFirstOrDefaultAsync<JobRow>();
+            var consol = await multi.ReadFirstOrDefaultAsync<ConsolRow>();
+            var addresses = (await multi.ReadAsync<DocAddressRow>()).ToList();
+            var containers = (await multi.ReadAsync<ContainerRow>()).ToList();
+            var bank = await multi.ReadFirstOrDefaultAsync<BankRow>();
+            var issuer = await multi.ReadFirstOrDefaultAsync<string>();
+
+            return Compose(head, lines, party, letterhead, job, consol, addresses, containers, bank, issuer);
+        }
+
+        /// <summary>
+        /// 运输信息（第 4~7 段）——作业头挂运单(JH_ParentTableCode='JS')时用这套。
+        /// </summary>
+        private const string ShipmentContextSql = @"
 -- 4) 业务单 + 运单
 SELECT TOP 1
     jh.JH_JobNum        AS job_num,
@@ -168,55 +227,70 @@ INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.JL_PK
 INNER JOIN JobContainer jc ON jc.JC_PK = p.J6_JC
 LEFT  JOIN RefContainer rc ON rc.RC_PK = jc.JC_RC
 WHERE jh.JH_PK = @jhPk;
-
--- 8) 收款银行：发票指定 > 分公司+币种 > 公司+币种
---    账号取 AB_FullAccountNumber / AB_AccountNum（AB_AccountNumber 在本库全为空）
-SELECT TOP 1 bank.*
-FROM (
-    SELECT 0 AS priority, ab.AB_BankAccountName AS beneficiary, ab.AB_BankName AS bank_name,
-           ab.AB_BankAddress AS bank_address, ab.AB_SWIFT AS swift,
-           COALESCE(NULLIF(ab.AB_FullAccountNumber, ''), NULLIF(ab.AB_AccountNum, ''), ab.AB_AccountNumber) AS account_no
-    FROM AccBankAccount ab
-    WHERE ab.AB_PK = @abPk
-    UNION ALL
-    SELECT 1, ab.AB_BankAccountName, ab.AB_BankName, ab.AB_BankAddress, ab.AB_SWIFT,
-           COALESCE(NULLIF(ab.AB_FullAccountNumber, ''), NULLIF(ab.AB_AccountNum, ''), ab.AB_AccountNumber)
-    FROM AccBankAccount ab
-    WHERE ab.AB_IsActive = 1
-        AND ab.AB_GB = @gbPk
-        AND ab.AB_RX_NKAccountCurrency = @ccy
-        AND (ISNULL(ab.AB_BankName, '') <> '' OR ISNULL(ab.AB_SWIFT, '') <> '')
-    UNION ALL
-    SELECT 2, ab.AB_BankAccountName, ab.AB_BankName, ab.AB_BankAddress, ab.AB_SWIFT,
-           COALESCE(NULLIF(ab.AB_FullAccountNumber, ''), NULLIF(ab.AB_AccountNum, ''), ab.AB_AccountNumber)
-    FROM AccBankAccount ab
-    WHERE ab.AB_IsActive = 1
-        AND ab.AB_GC = @gcPk
-        AND ab.AB_RX_NKAccountCurrency = @ccy
-        AND (ISNULL(ab.AB_BankName, '') <> '' OR ISNULL(ab.AB_SWIFT, '') <> '')
-) bank
-ORDER BY bank.priority;
-
--- 9) 签发人
-SELECT TOP 1 gs.GS_FullName AS full_name
-FROM GlbStaff gs
-WHERE gs.GS_Code = @createUser;
 ";
 
-            using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
+        /// <summary>
+        /// 运输信息（第 4~7 段）——作业头挂合单(JH_ParentTableCode='JK')时用这套。
+        /// 结果集的形状/列名与 <see cref="ShipmentContextSql"/> 完全一致，只换数据来源：
+        /// 运单字段 → JobConsol 自身；拼箱链路 → 直接就是本合单；集装箱 → JobContainer.JC_JK。
+        /// </summary>
+        private const string ConsolContextSql = @"
+-- 4) 业务单 + 合单（合单没有分单号，HB/L 留空）
+SELECT TOP 1
+    jh.JH_JobNum        AS job_num,
+    jh.JH_TransportMode AS job_transport_mode,
+    CAST(NULL AS varchar(1)) AS hbl,
+    c.JK_TransportMode  AS transport_mode,
+    c.JK_RL_NKLoadPort      AS origin,
+    c.JK_RL_NKDischargePort AS destination,
+    c.JK_TotalShipmentActWeightCheck AS weight,
+    COALESCE(NULLIF(c.JK_CorrectedConsolWeightUnit, ''), c.JK_TotalShipmentActOtherUnit) AS weight_unit,
+    c.JK_TotalShipmentActVolumeCheck AS volume,
+    NULLIF(c.JK_CorrectedConsolVolumeUnit, '') AS volume_unit,
+    c.JK_ConsolChargeable AS chargeable,
+    c.JK_TotalShipmentCountCheck AS packs
+FROM JobHeader jh
+LEFT JOIN JobConsol c ON c.JK_PK = jh.JH_ParentID AND jh.JH_ParentTableCode = 'JK'
+WHERE jh.JH_PK = @jhPk;
 
-            var lines = (await multi.ReadAsync<LineRow>()).ToList();
-            var party = await multi.ReadFirstOrDefaultAsync<PartyRow>();
-            var letterhead = await multi.ReadFirstOrDefaultAsync<LetterheadRow>();
-            var job = await multi.ReadFirstOrDefaultAsync<JobRow>();
-            var consol = await multi.ReadFirstOrDefaultAsync<ConsolRow>();
-            var addresses = (await multi.ReadAsync<DocAddressRow>()).ToList();
-            var containers = (await multi.ReadAsync<ContainerRow>()).ToList();
-            var bank = await multi.ReadFirstOrDefaultAsync<BankRow>();
-            var issuer = await multi.ReadFirstOrDefaultAsync<string>();
+-- 5) 合单 + 第一程运输（船名航次 / ETD / ETA / 主单号）
+SELECT TOP 1
+    c.JK_UniqueConsignRef AS consol_no,
+    c.JK_MasterBillNum    AS mbl,
+    t.JW_Vessel           AS vessel,
+    t.JW_VoyageFlight     AS voyage,
+    t.JW_ETD              AS etd,
+    t.JW_ETA              AS eta
+FROM JobHeader jh
+INNER JOIN JobConsol c ON c.JK_PK = jh.JH_ParentID
+LEFT  JOIN JobConsolTransport t ON t.JW_ParentGUID = c.JK_PK AND t.JW_IsValid = 1
+WHERE jh.JH_PK = @jhPk
+    AND jh.JH_ParentTableCode = 'JK'
+ORDER BY t.JW_LegOrder;
 
-            return Compose(head, lines, party, letterhead, job, consol, addresses, containers, bank, issuer);
-        }
+-- 6) 合单上只有本地代理 CEC / 海外代理 CIC，没有发货人(CRD)/收货人(CEG)。
+--    这里照样把两个代理查出来备用，但因为 addr_type 不是 CRD/CEG，
+--    模板上硬编码的 SHIPPER/CONSIGNEE 两行会保持为空（避免贴错标签）。
+--    只按 E2_ParentID(GUID，本身唯一) + 地址类型过滤，与 ConsolidationApplication.Detail 一致。
+SELECT
+    jda.E2_AddressType AS addr_type,
+    COALESCE(NULLIF(jda.E2_CompanyName, ''), NULLIF(oa.OA_CompanyNameOverride, ''), oh.OH_FullName) AS name
+FROM JobHeader jh
+INNER JOIN JobDocAddress jda ON jda.E2_ParentID = jh.JH_ParentID
+LEFT JOIN OrgAddress oa ON oa.OA_PK = jda.E2_OA_Address
+LEFT JOIN OrgHeader  oh ON oh.OH_PK = oa.OA_OH
+WHERE jh.JH_PK = @jhPk
+    AND jda.E2_AddressType IN ('CEC', 'CIC');
+
+-- 7) 集装箱：合单下的箱直接挂在 JobContainer.JC_JK 上
+SELECT DISTINCT
+    jc.JC_ContainerNum AS container_no,
+    rc.RC_Code         AS container_type
+FROM JobHeader jh
+INNER JOIN JobContainer jc ON jc.JC_JK = jh.JH_ParentID
+LEFT  JOIN RefContainer rc ON rc.RC_PK = jc.JC_RC
+WHERE jh.JH_PK = @jhPk;
+";
 
         /// <summary>
         /// 按发票号定位发票头。
@@ -232,6 +306,8 @@ SELECT TOP 1
     ah.AH_TransactionNum            AS ah_transactionnum,
     ah.AH_ConsolidatedInvoiceRef    AS ah_consolidatedinvoiceref,
     ah.AH_Ledger                    AS ah_ledger,
+    ah.AH_TransactionType           AS ah_transactiontype,
+    jhx.jh_parenttablecode          AS jh_parenttablecode,
     ah.AH_InvoiceDate               AS ah_invoicedate,
     ah.AH_DueDate                   AS ah_duedate,
     ah.AH_PostDate                  AS ah_postdate,
@@ -261,6 +337,17 @@ SELECT TOP 1
     ah.AH_SystemCreateUser          AS ah_systemcreateuser,
     ah.AH_SystemCreateTimeUtc       AS ah_systemcreatetimeutc
 FROM AccTransactionHeader ah
+OUTER APPLY (
+    -- 作业头锚点类型：'JS' = 挂运单，'JK' = 挂合单；决定运输信息那几段 SQL 取哪一套
+    SELECT TOP 1 jh.JH_ParentTableCode AS jh_parenttablecode
+    FROM JobHeader jh
+    WHERE jh.JH_PK = COALESCE(
+        ah.AH_JH,
+        (SELECT TOP 1 al.AL_JH
+         FROM AccTransactionLines al
+         WHERE al.AL_AH = ah.AH_PK AND al.AL_JH IS NOT NULL
+         ORDER BY al.AL_Sequence))
+) jhx
 WHERE ah.AH_IsCancelled = 0
     AND (ah.AH_TransactionNum = @invoiceNo OR ah.AH_ConsolidatedInvoiceRef = @invoiceNo)
     AND (@ledger IS NULL OR ah.AH_Ledger = @ledger)
@@ -286,6 +373,8 @@ ORDER BY CASE WHEN ah.AH_TransactionNum = @invoiceNo THEN 0 ELSE 1 END,
             string issuer)
         {
             var isAp = string.Equals(head.ah_ledger, "AP", StringComparison.OrdinalIgnoreCase);
+            // CRD = 作废已过账账单时生成的冲销单（与原单同号、金额取反），标题要区分出来
+            var isCredit = string.Equals(head.ah_transactiontype?.Trim(), "CRD", StringComparison.OrdinalIgnoreCase);
             var currency = Trim(head.ah_rx_nktransactioncurrency);
             var rate = head.ah_exchangerate.GetValueOrDefault();
 
@@ -314,7 +403,7 @@ ORDER BY CASE WHEN ah.AH_TransactionNum = @invoiceNo THEN 0 ELSE 1 END,
 
             var model = new InvoicePdfTemplateDto
             {
-                Title = isAp ? "PAYMENT VOUCHER" : "INVOICE",
+                Title = isCredit ? "CREDIT NOTE" : (isAp ? "PAYMENT VOUCHER" : "INVOICE"),
                 Watermark = head.ah_postdate.HasValue ? string.Empty : "DRAFT",
 
                 CompanyName = Trim(letterhead?.branch_name) ?? Trim(letterhead?.company_name),
@@ -445,6 +534,9 @@ ORDER BY CASE WHEN ah.AH_TransactionNum = @invoiceNo THEN 0 ELSE 1 END,
             public string ah_transactionnum { get; set; }
             public string ah_consolidatedinvoiceref { get; set; }
             public string ah_ledger { get; set; }
+            public string ah_transactiontype { get; set; }
+            /// <summary>作业头锚点类型：'JS' 挂运单 / 'JK' 挂合单</summary>
+            public string jh_parenttablecode { get; set; }
             public DateTime? ah_invoicedate { get; set; }
             public DateTime? ah_duedate { get; set; }
             public DateTime? ah_postdate { get; set; }

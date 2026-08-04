@@ -228,9 +228,8 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             // ah_jh 有相当比例的发票是空的（实测 AR 缺 3.3%、AP 缺 29%，见 BILLING_PORT_DESIGN.md §2.5），
             // 这类发票只能通过发票行的 al_jh 归属到作业头 —— 只按 ah_jh 关联会把它们整条漏掉。
             var where = $@"
-WHERE ah.ah_iscancelled = 0
-    AND ah.ah_transactiontype IN ('INV', 'CRD')
-    AND ( ah.ah_jh IN @jhPks
+WHERE  
+ ( ah.ah_jh IN @jhPks
        OR ( ah.ah_jh IS NULL
             AND ah.ah_pk IN (SELECT al.al_ah FROM AccTransactionLines al WHERE al.al_jh IN @jhPks) ) )
     {ledgerWhere}";

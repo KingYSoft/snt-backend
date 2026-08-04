@@ -22,6 +22,10 @@ namespace SntBackend.Application.Billing
         Task<List<AccBankAccountDtoOutput>> QueryWriteOffBank(WriteOffBankInput input);
 
         Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input);
+
+        /// <summary>
+        /// 按 shipment + AR/AP 分页查询发票头。类型含 INV(发票) 与 CRD(作废已过账账单时生成的冲销单)。
+        /// </summary>
         Task<BillingDraftPageOutput> QueryDraftPage(BillingDraftPageInput input);
         Task<BillingSummaryDto> GetBillingSummary(string shpPk);
         Task<QueryChargesByInvoiceOutput> QueryChargesByInvoiceNo(string invoiceNo);
@@ -81,10 +85,15 @@ namespace SntBackend.Application.Billing
         Task<int> VoidDraftInvoice(VoidInvoiceInput input);
 
         /// <summary>
-        /// 作废正式账单（已过账）：有核销/付款的不允许作废。发票头 ah_iscancelled=1 并解锁关联 JobCharge。
-        /// 入参为发票号 ah_transactionnum 列表。返回作废数量。
+        /// 作废正式账单（已过账）：有核销/付款的不允许作废。按 snt 库内既有 CRD 的惯例走整套冲销流程 ——
+        /// 建一张金额取反的 CRD（AR 取锚点序列新号 / AP 沿用原号，desc 写「撤销相关于 …」）、
+        /// 建两条 AccTransactionMatchLink 把原单与 CRD 对冲、两边 outstanding 清零并置 fullypaiddate、
+        /// 原单与 CRD 均 ah_iscancelled=1、解锁关联 JobCharge（费用可重新开票）。
         /// </summary>
-        Task<int> VoidPostedInvoice(List<string> invoiceNos);
+        /// <param name="invoiceNos">发票号 ah_transactionnum 列表</param>
+        /// <param name="reason">3 字原因码（库内取值如 WOR/IAM/IDE），写入 ap_reason 与冲销说明；可空</param>
+        /// <param name="reasonDesc">原因说明文字，写入冲销说明；可空</param>
+        Task<int> VoidPostedInvoice(List<string> invoiceNos, string reason = null, string reasonDesc = null);
 
         /// <summary>
         /// 编辑草稿发票：在某张未过账发票上 删除 / 修改 / 新增 费用，并同步发票行与发票头汇总。

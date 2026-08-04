@@ -824,12 +824,14 @@ ORDER BY b.ab_accountnum
             var dp = new DynamicParameters();
             dp.Add("invoiceNo", invoiceNo);
 
+            // 作废的发票不返回；但作废产生的 CRD 冲销单自身也是 ah_iscancelled=1（对齐库内惯例），
+            // 前端点已作废发票要能看到这张冲销单，所以对 CRD 放行。同号时优先取仍然有效的那张。
             var headSql = @"
 SELECT TOP 1 ah.*
 FROM AccTransactionHeader ah
 WHERE (ah.ah_transactionnum = @invoiceNo OR ah.ah_consolidatedinvoiceref = @invoiceNo)
-    AND ah.ah_iscancelled = 0
-ORDER BY ah.ah_invoicedate DESC, ah.ah_pk DESC
+    AND (ah.ah_iscancelled = 0 OR ah.ah_transactiontype = 'CRD')
+ORDER BY ah.ah_iscancelled, ah.ah_invoicedate DESC, ah.ah_pk DESC
 ";
             var head = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(headSql, dp);
             if (head == null)
@@ -872,9 +874,6 @@ ORDER BY al.al_sequence
                 var lineCol = isAr ? "jr.jr_al_arline" : "jr.jr_al_apline";
 
                 var linePks = lines.Select(x => x.al_pk).ToList();
-                var chargesDp = new DynamicParameters();
-                chargesDp.Add("linePks", linePks);
-                chargesDp.Add("ahPk", head.ah_pk);
 
                 var chargesSql = $@"
 SELECT

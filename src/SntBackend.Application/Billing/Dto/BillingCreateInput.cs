@@ -43,6 +43,13 @@ namespace SntBackend.Application.Billing.Dto
         /// <summary>原币金额（AR=jr_ossellamt / AP=jr_oscostamt）</summary>
         public decimal? os_amount { get; set; }
 
+        /// <summary>
+        /// 数量 jr_productquantity。不传按 1 计。
+        /// 注意：必须给值或按 1，不能沿用模板行 —— 否则新费用会继承模板行的数量，
+        /// 导致 charge-line 里的单价（金额/数量）算错。
+        /// </summary>
+        public decimal? qty { get; set; }
+
         /// <summary>币种（AR=jr_rx_nksellcurrency / AP=jr_rx_nkcostcurrency）</summary>
         public string currency { get; set; }
 

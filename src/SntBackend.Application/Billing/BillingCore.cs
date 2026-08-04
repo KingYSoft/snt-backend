@@ -47,6 +47,24 @@ namespace SntBackend.Application.Billing
                 dp.Add("anchorPk", anchorPk);
         }
 
+        /// <summary>
+        /// 锚点（运单/合单）下有效的作业头 pk 列表；锚点已作废或没有作业头时返回空列表。
+        /// 发票/费用都挂在作业头上，所以先取这一层再往下查，避免在大表上做相关子查询。
+        /// </summary>
+        private async Task<List<string>> AnchorJobHeaderPksAsync(BillingScope scope, string anchorPk)
+        {
+            var dp = new DynamicParameters();
+            AddAnchorPk(dp, anchorPk);
+            return (await _appSqlServerRepository.QueryAsync<string>($@"
+SELECT jh.jh_pk
+FROM JobHeader jh
+INNER JOIN {scope.ParentTable} anchor ON anchor.{scope.ParentPkColumn} = jh.jh_parentid
+WHERE jh.jh_parentid = @anchorPk
+    AND jh.jh_parenttablecode = '{scope.ParentTableCode}'
+    AND anchor.{scope.CancelledColumn} = 0
+", dp)).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        }
+
         // ============================================================================
         // 读操作
         // ============================================================================
@@ -96,6 +114,7 @@ namespace SntBackend.Application.Billing
 WHERE jh.jh_parentid = @anchorPk
     AND jh.jh_parenttablecode = '{scope.ParentTableCode}'
     AND anchor.{scope.CancelledColumn} = 0
+    AND jr.jr_isvalid = 1
     AND {sideFilter}";
 
                 var totalSql = $@"
@@ -183,13 +202,19 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             if (string.IsNullOrWhiteSpace(anchorPk))
                 throw new Exception($"{scope.PkParamName} cannot be empty.");
 
+            var output = new BillingDraftPageOutput();
+
+            var jhPks = await AnchorJobHeaderPksAsync(scope, anchorPk);
+            if (jhPks.Count == 0)
+                return output;
+
             var orderBy = !string.IsNullOrWhiteSpace(sorting) &&
                           sorting.IndexOf("DESC", StringComparison.OrdinalIgnoreCase) >= 0
                 ? "ORDER BY ah.ah_invoicedate DESC, ah.ah_pk DESC"
                 : "ORDER BY ah.ah_invoicedate, ah.ah_pk";
 
             var dp = new DynamicParameters();
-            AddAnchorPk(dp, anchorPk);
+            dp.Add("jhPks", jhPks);
             dp.Add("skipCount", skipCount);
             dp.Add("takeCount", maxResultCount);
 
@@ -200,32 +225,29 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
                 dp.Add("chargeType", chargeType);
             }
 
-            var anchorWhere = $@"
-WHERE jh.jh_parentid = @anchorPk
-    AND jh.jh_parenttablecode = '{scope.ParentTableCode}'
-    AND anchor.{scope.CancelledColumn} = 0
-    AND ah.ah_iscancelled = 0
+            // ah_jh 有相当比例的发票是空的（实测 AR 缺 3.3%、AP 缺 29%，见 BILLING_PORT_DESIGN.md §2.5），
+            // 这类发票只能通过发票行的 al_jh 归属到作业头 —— 只按 ah_jh 关联会把它们整条漏掉。
+            var where = $@"
+WHERE ah.ah_iscancelled = 0
     AND ah.ah_transactiontype IN ('INV', 'CRD')
+    AND ( ah.ah_jh IN @jhPks
+       OR ( ah.ah_jh IS NULL
+            AND ah.ah_pk IN (SELECT al.al_ah FROM AccTransactionLines al WHERE al.al_jh IN @jhPks) ) )
     {ledgerWhere}";
 
             var totalSql = $@"
 SELECT COUNT(*)
 FROM AccTransactionHeader ah
-INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
-INNER JOIN {scope.ParentTable} anchor ON anchor.{scope.ParentPkColumn} = jh.jh_parentid
-{anchorWhere}
+{where}
 ";
             var pageSql = $@"
 SELECT ah.*
 FROM AccTransactionHeader ah
-INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
-INNER JOIN {scope.ParentTable} anchor ON anchor.{scope.ParentPkColumn} = jh.jh_parentid
-{anchorWhere}
+{where}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
 
-            var output = new BillingDraftPageOutput();
             using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
 {totalSql};
 {pageSql}
@@ -297,16 +319,20 @@ WHERE {scope.ParentPkColumn} = @anchorPk", refDp);
             if (string.IsNullOrWhiteSpace(consignRef))
                 consignRef = fallbackJobNum ?? "INV";
 
-            // 该锚点下已有发票号，算下一个后缀
-            var existDp = new DynamicParameters();
-            AddAnchorPk(existDp, anchorPk);
-            var existingNos = (await _appSqlServerRepository.QueryAsync<string>($@"
+            // 该锚点下已有发票号，算下一个后缀。
+            // 这里同样要带上 ah_jh 为空、只能靠发票行 al_jh 归属的发票（见 QueryDraftPageAsync 的说明），
+            // 否则算后缀时看不到它们，可能生成一个已经用过的发票号。
+            var jhPks = await AnchorJobHeaderPksAsync(scope, anchorPk);
+            var existingNos = jhPks.Count == 0
+                ? new List<string>()
+                : (await _appSqlServerRepository.QueryAsync<string>(@"
 SELECT ah.ah_transactionnum
 FROM AccTransactionHeader ah
-INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
-WHERE jh.jh_parentid = @anchorPk AND jh.jh_parenttablecode = '{scope.ParentTableCode}'
-    AND ah.ah_transactionnum IS NOT NULL
-", existDp)).ToList();
+WHERE ah.ah_transactionnum IS NOT NULL
+    AND ( ah.ah_jh IN @jhPks
+       OR ( ah.ah_jh IS NULL
+            AND ah.ah_pk IN (SELECT al.al_ah FROM AccTransactionLines al WHERE al.al_jh IN @jhPks) ) )
+", new DynamicParameters(new { jhPks }))).ToList();
 
             var prefix = consignRef + "/";
             var maxIndex = -1;
@@ -493,8 +519,10 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                     {
                         var acDp = new DynamicParameters();
                         acDp.Add("ac", ac);
+                        // 查不到（ac_pk 不存在 / ac_chargetype 为空）时保留入参的分类码，别把它清成 null
                         chargeTypeCode = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(
-                            "SELECT TOP 1 ac_chargetype FROM AccChargeCode WHERE ac_pk = @ac", acDp);
+                            "SELECT TOP 1 ac_chargetype FROM AccChargeCode WHERE ac_pk = @ac", acDp)
+                            ?? c.jr_chargetype;
                     }
                     // AP 按负数存储（与 snt 现有 AP 数据一致）
                     if (isAp)
@@ -508,6 +536,9 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                     p.Add("code", chargeTypeCode);
                     p.Add("desc", c.jr_desc);
                     p.Add("invoiceType", c.jr_invoicetype);
+                    // 新增用 @qty（不给按 1）；修改用 @qtyUpd（不给则保留原值，不能被 1 覆盖）
+                    p.Add("qty", c.qty.HasValue && c.qty.Value > 0 ? c.qty.Value : 1m);
+                    p.Add("qtyUpd", c.qty.HasValue && c.qty.Value > 0 ? c.qty.Value : (decimal?)null);
                     p.Add("now", now);
                     p.Add("user", SysUser);
                     // 双侧参数
@@ -575,6 +606,7 @@ UPDATE JobCharge SET
     jr_desc = @desc,
     jr_gb = COALESCE(@gb, jr_gb),
     jr_invoicetype = COALESCE(@invoiceType, jr_invoicetype),
+    jr_productquantity = COALESCE(@qtyUpd, jr_productquantity),
     {setSide},
     jr_systemlastedittimeutc = @now,
     jr_systemlastedituser = @user
@@ -636,6 +668,7 @@ SELECT
     jr.jr_chargetype AS jr_chargetype,
     jr.jr_desc      AS jr_desc,
     jr.jr_displaysequence AS jr_displaysequence,
+    jr.jr_productquantity AS qty,
     {sideParty}     AS party_oh,
     {sideCcy}       AS currency,
     {sideRate}      AS exchange_rate,
@@ -654,11 +687,14 @@ FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
 WHERE jr.jr_pk IN @pks
     AND jh.jh_parenttablecode = '{scope.ParentTableCode}'
+    AND jr.jr_isvalid = 1
     AND {sideLink} IS NULL
 ", loadDp)).ToList();
 
+            // 一条都没捞到时必须报错：静默返回 0 会让前端以为开票/过账成功了
             if (charges.Count == 0)
-                return new List<(string ahPk, string invNo)>();
+                throw new Exception(
+                    $"选中的费用没有可开票的 {(isAr ? "AR" : "AP")} 行：可能已经开过票、已被删除，或不属于该{scope.DisplayName}。");
 
             var anchorPk = charges[0].anchor_pk;
 
@@ -721,6 +757,8 @@ WHERE jr.jr_pk IN @pks
                 foreach (var c in items)
                 {
                     var alPk = Guid.NewGuid().ToString();
+                    var lineOsAmt = sign * Math.Abs(c.os_amount ?? 0);
+                    var (lineQty, lineUnitPrice) = SplitQtyAndUnitPrice(c.qty, lineOsAmt);
                     var lp = new DynamicParameters();
                     lp.Add("alpk", alPk);
                     lp.Add("altype", altype);
@@ -731,7 +769,9 @@ WHERE jr.jr_pk IN @pks
                     lp.Add("vat", c.vat_class);
                     lp.Add("gstcode", c.gst_rate);
                     lp.Add("whtcode", c.wht_rate);
-                    lp.Add("osamt", sign * Math.Abs(c.os_amount ?? 0));
+                    lp.Add("qty", lineQty);
+                    lp.Add("unitprice", lineUnitPrice);
+                    lp.Add("osamt", lineOsAmt);
                     lp.Add("ccy", c.currency);
                     lp.Add("rate", c.exchange_rate ?? 0m);
                     lp.Add("jh", c.jh_pk);
@@ -834,6 +874,9 @@ WHERE jr_pk IN @pks
             var now = DateTime.UtcNow;
             var affected = 0;
 
+            // 先全量校验再动手：否则批量作废中途抛异常时，前几张已经作废、后几张没动，
+            // 前端只看到一个报错，实际状态是半成品。
+            var targets = new List<HeaderPostRow>();
             foreach (var ahPk in ahPks.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct())
             {
                 var hDp = new DynamicParameters();
@@ -843,7 +886,12 @@ WHERE jr_pk IN @pks
                 if (header == null) continue;
                 if (header.ah_postdate != null)
                     throw new Exception($"Cannot void posted invoice as draft: {ahPk}. Use VoidPostedInvoice instead.");
+                targets.Add(header);
+            }
 
+            foreach (var header in targets)
+            {
+                var ahPk = header.ah_pk;
                 await UnlinkChargesByHeaderAsync(ahPk, header.ah_ledger, now);
 
                 var cDp = new DynamicParameters();
@@ -876,6 +924,8 @@ WHERE jr_pk IN @pks
             var nowLocal = DateTime.Now;   // 业务日期列（ap_matchdate / ah_fullypaiddate）库内存的是本地时间
             var affected = 0;
 
+            // 先全量校验再动手：批量作废时若第二张不合法，不能留下"第一张已作废、后面没动"的半成品
+            var targets = new List<(string no, HeaderVoidRow header)>();
             foreach (var no in invoiceNos.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct())
             {
                 var hDp = new DynamicParameters();
@@ -890,6 +940,12 @@ WHERE ah_transactionnum = @no AND ah_iscancelled = 0 AND ah_postdate IS NOT NULL
                 if (Math.Abs(header.ah_outstandingamount) < Math.Abs(header.ah_invoiceamount))
                     throw new Exception($"Cannot void matched/paid invoice: {no}.");
 
+                targets.Add((no, header));
+            }
+
+            var groupSeq = 0;
+            foreach (var (no, header) in targets)
+            {
                 var isAr = string.Equals(header.ah_ledger, "AR", StringComparison.OrdinalIgnoreCase);
 
                 // 冲销单号：AR 取本锚点序列的下一个号，AP 沿用原号（与库内既有 CRD 的做法一致：
@@ -913,8 +969,9 @@ WHERE ah_transactionnum = @no AND ah_iscancelled = 0 AND ah_postdate IS NOT NULL
                 var crdDesc = Truncate($"{string.Join(" - ", descParts)} 输入者 {SysUser}", 200);
 
                 // MatchGroupNum 是 varchar(20)。库内 CargoWise 自己的编号是 M+8 位数字（M00075287），
-                // 这里用 M+15 位时间戳，保证永远不会和它的序列撞号。
-                var matchGroup = "M" + nowLocal.ToString("yyMMddHHmmssfff");
+                // 这里用 M+时间戳+批内序号（共 17 字符），既不会和它的序列撞号，
+                // 也保证一次批量作废里每张发票各自成一个核销组（而不是全挤进同一组）。
+                var matchGroup = $"M{nowLocal:yyMMddHHmmss}{++groupSeq:D4}";
 
                 // 建 CRD + 对冲 + 清零 + 作废 + 解锁费用，一个批处理内完成（BEGIN TRAN 保证原子性）
                 var crdPk = Guid.NewGuid().ToString();
@@ -937,6 +994,21 @@ WHERE ah_transactionnum = @no AND ah_iscancelled = 0 AND ah_postdate IS NOT NULL
             return affected;
         }
 
+        /// <summary>
+        /// 把费用行的数量拆成「发票行数量 + 单价」。
+        /// al_unitqty 是 int 列，所以只有正整数才照搬，小数/0 一律按 1 件（单价=总额），
+        /// 免得 CAST 丢精度后 数量×单价 ≠ 金额。
+        /// </summary>
+        private static (int qty, decimal unitPrice) SplitQtyAndUnitPrice(decimal qty, decimal osAmount)
+        {
+            if (qty > 0 && qty == Math.Floor(qty) && qty <= int.MaxValue)
+            {
+                var q = (int)qty;
+                return (q, osAmount / q);
+            }
+            return (1, osAmount);
+        }
+
         private static string Truncate(string value, int max) =>
             string.IsNullOrEmpty(value) || value.Length <= max ? value : value.Substring(0, max);
 
@@ -945,10 +1017,16 @@ WHERE ah_transactionnum = @no AND ah_iscancelled = 0 AND ah_postdate IS NOT NULL
         /// </summary>
         private async Task<(BillingScope scope, string anchorPk)> ResolveAnchorAsync(string ahPk)
         {
+            // ah_jh 为空时回落到发票行的 al_jh（与 InvoicePdfDataProvider 一致）
             var row = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AnchorRow>(@"
 SELECT TOP 1 jh.jh_parentid AS anchor_pk, jh.jh_parenttablecode AS parent_table_code
 FROM AccTransactionHeader ah
-INNER JOIN JobHeader jh ON jh.jh_pk = ah.ah_jh
+INNER JOIN JobHeader jh ON jh.jh_pk = COALESCE(
+    ah.ah_jh,
+    (SELECT TOP 1 al.al_jh
+     FROM AccTransactionLines al
+     WHERE al.al_ah = ah.ah_pk AND al.al_jh IS NOT NULL
+     ORDER BY al.al_sequence))
 WHERE ah.ah_pk = @ah", new DynamicParameters(new { ah = ahPk }));
 
             if (row == null || string.IsNullOrWhiteSpace(row.anchor_pk))
@@ -1035,6 +1113,8 @@ WHERE al_ah = @ah AND al_pk = (SELECT {linkCol} FROM JobCharge WHERE jr_pk = @jr
                         await _appSqlServerRepository.ExecuteAsync(InsertJobChargeSql, jp);
 
                         // 发票行
+                        var (lineQty, lineUnitPrice) = SplitQtyAndUnitPrice(
+                            c.qty.HasValue && c.qty.Value > 0 ? c.qty.Value : 1m, os);
                         var lp = new DynamicParameters();
                         lp.Add("alpk", alPk);
                         lp.Add("altype", isAr ? "REV" : "CST");
@@ -1045,6 +1125,8 @@ WHERE al_ah = @ah AND al_pk = (SELECT {linkCol} FROM JobCharge WHERE jr_pk = @jr
                         lp.Add("vat", c.vat_class);
                         lp.Add("gstcode", c.gst_rate);
                         lp.Add("whtcode", c.wht_rate);
+                        lp.Add("qty", lineQty);
+                        lp.Add("unitprice", lineUnitPrice);
                         lp.Add("osamt", os);
                         lp.Add("ccy", c.currency);
                         lp.Add("rate", c.exchange_rate ?? 0m);
@@ -1091,19 +1173,25 @@ WHERE al_ah = @ah AND al_pk = (SELECT {linkCol} FROM JobCharge WHERE jr_pk = @jr
                                 jr_oscostamt=@os, jr_localcostamt=@local, jr_at_costgstrate=@gst,
                                 jr_aw_costwhtrate=@wht, jr_a9_costvatclass=@vat";
 
+                        up.Add("qtyUpd", c.qty.HasValue && c.qty.Value > 0 ? c.qty.Value : (decimal?)null);
                         await _appSqlServerRepository.ExecuteAsync($@"
 UPDATE JobCharge SET jr_chargetype=@code, jr_desc=@desc, {setSide},
+    jr_productquantity = COALESCE(@qtyUpd, jr_productquantity),
     jr_systemlastedittimeutc=@now, jr_systemlastedituser=@user
 WHERE jr_pk=@jr", up);
 
-                        // 同步对应发票行（通过 charge 的链接定位）
+                        // 同步对应发票行（通过 charge 的链接定位）。数量/单价一并同步，
+                        // 否则改了金额之后 数量×单价 ≠ 金额，发票 PDF 上会自相矛盾。
+                        var (updQty, updUnitPrice) = SplitQtyAndUnitPrice(
+                            c.qty.HasValue && c.qty.Value > 0 ? c.qty.Value : 1m, os);
                         await _appSqlServerRepository.ExecuteAsync($@"
 UPDATE AccTransactionLines SET
-    al_desc=@desc, al_lineamount=@local, al_osamount=@os, al_unitprice=@os, al_osunitprice=@os,
+    al_desc=@desc, al_lineamount=@local, al_osamount=@os,
+    al_unitqty=@qty, al_unitprice=@unitprice, al_osunitprice=@unitprice,
     al_rx_nktransactioncurrency=@ccy, al_exchangerate=@rate, al_a9_vatclass=@vat, al_at=@gst, al_aw=@wht,
     al_systemlastedittimeutc=@now, al_systemlastedituser=@user
 WHERE al_ah=@ah AND al_pk = (SELECT {linkCol} FROM JobCharge WHERE jr_pk=@jr)",
-                            new DynamicParameters(new { ah = input.ahPk, jr = c.jr_pk, desc = c.jr_desc, local, os, ccy = c.currency, rate = c.exchange_rate ?? 0m, vat = c.vat_class, gst = c.gst_rate, wht = c.wht_rate, now, user = SysUser }));
+                            new DynamicParameters(new { ah = input.ahPk, jr = c.jr_pk, desc = c.jr_desc, local, os, qty = updQty, unitprice = updUnitPrice, ccy = c.currency, rate = c.exchange_rate ?? 0m, vat = c.vat_class, gst = c.gst_rate, wht = c.wht_rate, now, user = SysUser }));
                         affected++;
                     }
                 }
@@ -1160,6 +1248,7 @@ WHERE {linkCol} IN (SELECT al_pk FROM AccTransactionLines WHERE al_ah = @ah)", d
             p.Add("now", now);
             p.Add("user", SysUser);
             p.Add("templatePk", templatePk);
+            p.Add("qty", c.qty.HasValue && c.qty.Value > 0 ? c.qty.Value : 1m);
             // 费用代码：非法/为空的 pk 存 NULL，由 InsertJobChargeSql 的 COALESCE 兜底到模板行
             p.Add("ac", Guid.TryParse(c.jr_ac, out var acG) ? acG : (Guid?)null);
             p.Add("sellParty", isAr ? c.party_oh : null);
@@ -1433,7 +1522,9 @@ SELECT
     -- 61-65: invoicetype, proformarevenue, preventinvoiceprintgrouping, displaysequence, arlinepostingstatus(NOT NULL→模板)
     COALESCE(@invoiceType, t.jr_invoicetype), t.jr_proformarevenue, 0, @seq, t.jr_arlinepostingstatus,
     -- 66-72: orderreference(NOT NULL→模板), op_product, productquantity, e6, gc, costgovtchargecode(NOT NULL→模板), e6_gatewaysellheader
-    t.jr_orderreference, t.jr_op_product, t.jr_productquantity, t.jr_e6, @gc, t.jr_costgovtchargecode, t.jr_e6_gatewaysellheader,
+    -- productquantity 不能沿用模板行：否则新费用会继承一个莫名其妙的数量，
+    -- 让 charge-line 的单价（原币金额/数量）整个算错。入参没给就按 1。
+    t.jr_orderreference, t.jr_op_product, COALESCE(@qty, 1), t.jr_e6, @gc, t.jr_costgovtchargecode, t.jr_e6_gatewaysellheader,
     -- 73-78: jr_revenueline, linetype, sellinvoicecurrency(NOT NULL→兜底模板), sellgovtchargecode(NOT NULL→模板), costtaxdate, selltaxdate
     NULL, @ledger, COALESCE(@sellCcy, t.jr_rx_nksellinvoicecurrency), t.jr_sellgovtchargecode, NULL, NULL,
     -- 79-83: iscosttaxamountoverridden, apdocumentreceiveddate, autoversion, costplaceofsupply, costplaceofsupplytype
@@ -1537,7 +1628,9 @@ INSERT INTO AccTransactionLines (
 )
 SELECT
     @alpk, @altype, @seq, @desc, @localamt, @gstcode, @gst, t.al_gstvatbasis,
-    @vat, @whtcode, 0, 1, @osamt, @osamt, @osamt,
+    -- 数量/单价用费用行自己的值（原来恒为 1 且单价=总额，导致开票前后数量单价跳变、
+    -- 发票 PDF 上打出来的单价等于总额）
+    @vat, @whtcode, 0, @qty, @unitprice, @unitprice, @osamt,
     @ccy, @rate, 0, t.al_postperiod, NULL,
     t.al_posttogl, t.al_reverseperiod, NULL, t.al_reversetogl, 0,
     0, 0, 0, t.al_revrecognitiontype, @jh,
@@ -1573,6 +1666,7 @@ WHERE t.al_pk = @templatePk
             public string jr_chargetype { get; set; }
             public string jr_desc { get; set; }
             public int jr_displaysequence { get; set; }
+            public decimal qty { get; set; }
             public string party_oh { get; set; }
             public string currency { get; set; }
             public decimal? exchange_rate { get; set; }

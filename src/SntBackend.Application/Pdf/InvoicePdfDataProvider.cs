@@ -348,10 +348,14 @@ OUTER APPLY (
          WHERE al.AL_AH = ah.AH_PK AND al.AL_JH IS NOT NULL
          ORDER BY al.AL_Sequence))
 ) jhx
-WHERE ah.AH_IsCancelled = 0
-    AND (ah.AH_TransactionNum = @invoiceNo OR ah.AH_ConsolidatedInvoiceRef = @invoiceNo)
+WHERE (ah.AH_TransactionNum = @invoiceNo OR ah.AH_ConsolidatedInvoiceRef = @invoiceNo)
     AND (@ledger IS NULL OR ah.AH_Ledger = @ledger)
+    -- 作废的发票不打印；但作废产生的 CRD 冲销单自身也是 IsCancelled=1（对齐库内惯例），
+    -- 它是要交给客户/供应商的凭证，必须能打出来，所以对 CRD 放行。
+    AND (ah.AH_IsCancelled = 0 OR ah.AH_TransactionType = 'CRD')
 ORDER BY CASE WHEN ah.AH_TransactionNum = @invoiceNo THEN 0 ELSE 1 END,
+    -- 同号时优先取仍然有效的那张，其次才是冲销单
+    ah.AH_IsCancelled,
     ah.AH_InvoiceDate DESC, ah.AH_PK DESC
 ";
             return await _appSqlServerRepository.QueryFirstOrDefaultAsync<HeadRow>(sql, dp);

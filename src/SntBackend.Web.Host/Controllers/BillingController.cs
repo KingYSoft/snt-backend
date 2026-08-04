@@ -248,15 +248,28 @@ public class BillingController : SntBackendControllerBase
     }
 
     /// <summary>
-    /// 作废正式账单（已过账，按发票号）
+    /// 作废正式账单（已过账，按发票号）。作废会建一张金额取反的 CRD 冲销单并与原单对冲。
     /// </summary>
+    /// <param name="invoiceNos">发票号列表</param>
+    /// <param name="reason">可选，3 字原因码（如 WOR/IAM/IDE），写入冲销说明与核销记录</param>
+    /// <param name="reasonDesc">可选，原因说明文字，写入冲销说明</param>
     [HttpPost]
     [Route("void-posted")]
     [NoToken]
-    public async Task<JsonResponse<int>> VoidPostedInvoice([FromBody] List<string> invoiceNos)
+    public async Task<JsonResponse<int>> VoidPostedInvoice(
+        [FromBody] List<string> invoiceNos,
+        [FromQuery] string reason = null,
+        [FromQuery] string reasonDesc = null)
     {
-        var result = await _billingApplication.VoidPostedInvoice(invoiceNos);
-        return new JsonResponse<int> { Data = result };
+        try
+        {
+            var result = await _billingApplication.VoidPostedInvoice(invoiceNos, reason, reasonDesc);
+            return new JsonResponse<int> { Data = result };
+        }
+        catch (Exception ex)
+        {
+            return new JsonResponse<int>(false, ex.Message);
+        }
     }
 
     /// <summary>

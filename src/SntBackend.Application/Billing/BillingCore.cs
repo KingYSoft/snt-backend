@@ -113,8 +113,6 @@ WHERE jh.jh_parentid = @anchorPk
                 var anchorWhere = $@"
 WHERE jh.jh_parentid = @anchorPk
     AND jh.jh_parenttablecode = '{scope.ParentTableCode}'
-    AND anchor.{scope.CancelledColumn} = 0
-    AND jr.jr_isvalid = 1
     AND {sideFilter}";
 
                 var totalSql = $@"

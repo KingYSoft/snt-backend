@@ -1,6 +1,7 @@
 using SntBackend.Application.Billing;
 using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Consolidation.Dto;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -9,28 +10,54 @@ namespace SntBackend.Application.Consolidation
     /// <summary>
     /// 合单账单实现：账单逻辑一份在 <see cref="BillingCore"/>，这里只固定 <see cref="BillingScope.Consol"/>。
     /// 与锚点无关的能力（按发票号反查费用、发票打印）直接转发 shipment 侧的 <see cref="IBillingApplication"/>。
+    ///
+    /// 例外：<see cref="QueryChargeLine"/> 与 <see cref="GetBillingSummary"/> 走 <see cref="ConsolCostQuery"/>，
+    /// 因为合单的成本数据在 JobConsolCost 上而不在 BillingCore 读的 JobHeader('JK') → JobCharge 链路上。
     /// </summary>
     public class ConsolidationBillingApplication : SntBackendApplicationBase, IConsolidationBillingApplication
     {
         private readonly BillingCore _billingCore;
         private readonly IBillingApplication _billingApplication;
+        private readonly ConsolCostQuery _consolCostQuery;
 
-        public ConsolidationBillingApplication(BillingCore billingCore, IBillingApplication billingApplication)
+        public ConsolidationBillingApplication(BillingCore billingCore, IBillingApplication billingApplication,
+            ConsolCostQuery consolCostQuery)
         {
             _billingCore = billingCore;
             _billingApplication = billingApplication;
+            _consolCostQuery = consolCostQuery;
         }
 
-        public Task<BillingChargeLineOutput> QueryChargeLine(ConsolBillingChargeLineInput input) =>
-            _billingCore.QueryChargeLineAsync(BillingScope.Consol, input?.jkPk, input?.chargeType,
+        public Task<ConsolBillingCostLineOutput> QueryChargeLine(ConsolBillingChargeLineInput input)
+        {
+            // JobConsolCost 只有成本侧，AR 无数据来源：返回空结果而不是抛错，让前端 AR 页签显示空。
+            if (!string.Equals(input?.chargeType?.Trim(), "AP", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(new ConsolBillingCostLineOutput());
+
+            return _consolCostQuery.QueryCostLineAsync(input?.jkPk,
                 input?.SkipCount ?? 0, input?.MaxResultCount ?? 20, input?.Sorting);
+        }
 
         public Task<BillingDraftPageOutput> QueryDraftPage(ConsolBillingDraftPageInput input) =>
             _billingCore.QueryDraftPageAsync(BillingScope.Consol, input?.jkPk, input?.chargeType,
                 input?.SkipCount ?? 0, input?.MaxResultCount ?? 20, input?.Sorting);
 
-        public Task<BillingSummaryDto> GetBillingSummary(string jkPk) =>
-            _billingCore.GetBillingSummaryAsync(BillingScope.Consol, jkPk);
+        public async Task<BillingSummaryDto> GetBillingSummary(string jkPk)
+        {
+            // AP 口径与 QueryChargeLine 的列表一致（JobConsolCost 本位币成本合计）。
+            // AR 合单侧无数据来源，固定 0；profits / grossProfitMargin 沿用原公式，本次无业务含义。
+            var ap = await _consolCostQuery.GetApSummaryAsync(jkPk);
+            const decimal ar = 0m;
+
+            return new BillingSummaryDto
+            {
+                ar = ar,
+                ap = Math.Round(ap, 2),
+                profits = Math.Round(ar - ap, 2),
+                grossProfitMargin = 0,
+                home_currency = ""
+            };
+        }
 
         public Task<BillingCreateOrUpdateOutput> CreateOrUpdate(ConsolBillingCreateInput input) =>
             _billingCore.CreateOrUpdateAsync(BillingScope.Consol, input?.jkPk, input?.charges);

@@ -7,18 +7,27 @@ namespace SntBackend.Application.Consolidation
 {
     /// <summary>
     /// 合单(JobConsol)账单：与 shipment 侧 <see cref="Billing.IBillingApplication"/> 一一对应的能力，
-    /// 实现全部委托 <see cref="Billing.BillingCore"/>，只把作用域固定为 BillingScope.Consol。
+    /// 实现大部分委托 <see cref="Billing.BillingCore"/>，只把作用域固定为 BillingScope.Consol。
     /// 下拉框类接口（费用代码/分支/税率/VAT/本位币）与锚点无关，继续用 /billing/* 那几个，不再重复一份。
+    ///
+    /// 例外：费用行查询与账单汇总走 <see cref="ConsolCostQuery"/> 而不是 BillingCore ——
+    /// 合单的成本数据在 JobConsolCost 上，不在 JobHeader('JK') → JobCharge 那条链路上，详见该类注释。
     /// </summary>
     public interface IConsolidationBillingApplication : ISntBackendApplicationBase
     {
-        /// <summary>按合单 + AR/AP 分页查询费用行（JobCharge）。</summary>
-        Task<BillingChargeLineOutput> QueryChargeLine(ConsolBillingChargeLineInput input);
+        /// <summary>
+        /// 按合单分页查询 AP 成本行：主行 = JobConsolCost，每行下挂按运单分摊的 JobCharge 子行。
+        /// JobConsolCost 只有成本侧列，所以只支持 AP；<c>chargeType</c> 传其他值返回空结果。
+        /// </summary>
+        Task<ConsolBillingCostLineOutput> QueryChargeLine(ConsolBillingChargeLineInput input);
 
         /// <summary>按合单 + AR/AP 分页查询发票头（含 INV 与作废后生成的 CRD）。</summary>
         Task<BillingDraftPageOutput> QueryDraftPage(ConsolBillingDraftPageInput input);
 
-        /// <summary>合单账单汇总（毛利率、AR、AP、利润）。</summary>
+        /// <summary>
+        /// 合单账单汇总。AP 取 JobConsolCost 本位币成本合计，口径与 <see cref="QueryChargeLine"/> 一致；
+        /// AR 固定 0（合单侧不支持应收），因此 profits / grossProfitMargin 两个字段无业务含义。
+        /// </summary>
         Task<BillingSummaryDto> GetBillingSummary(string jkPk);
 
         /// <summary>新增 / 修改合单应收应付费用（JobCharge）。合单作业头不存在时按需创建。</summary>

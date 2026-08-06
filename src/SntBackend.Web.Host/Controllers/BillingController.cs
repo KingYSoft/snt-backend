@@ -70,7 +70,6 @@ public class BillingController : SntBackendControllerBase
     /// </summary>
     [HttpPost]
     [Route("charge-line")]
-    [NoToken]
     public async Task<JsonResponse<BillingChargeLineOutput>> QueryChargeLine([FromBody] BillingChargeLineInput input)
     {
         var result = await _billingApplication.QueryChargeLine(input);

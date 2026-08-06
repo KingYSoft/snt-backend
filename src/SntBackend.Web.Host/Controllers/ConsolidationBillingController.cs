@@ -28,15 +28,16 @@ public class ConsolidationBillingController : SntBackendControllerBase
     }
 
     /// <summary>
-    /// 按合单 + AR/AP 分页查询费用行（JobCharge）
+    /// 按合单分页查询 AP 成本行：主行 = JobConsolCost，每行下挂按运单分摊的 JobCharge 子行(cost_items)。
+    /// 只支持 chargeType = AP（JobConsolCost 无卖价列），传其他值返回空结果。
     /// </summary>
     [HttpPost]
     [Route("charge-line")]
     [NoToken]
-    public async Task<JsonResponse<BillingChargeLineOutput>> QueryChargeLine([FromBody] ConsolBillingChargeLineInput input)
+    public async Task<JsonResponse<ConsolBillingCostLineOutput>> QueryChargeLine([FromBody] ConsolBillingChargeLineInput input)
     {
         var result = await _consolidationBillingApplication.QueryChargeLine(input);
-        return new JsonResponse<BillingChargeLineOutput> { Data = result };
+        return new JsonResponse<ConsolBillingCostLineOutput> { Data = result };
     }
 
     /// <summary>

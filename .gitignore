@@ -255,3 +255,4 @@ paket-files/
 **/App_Data/
 **/*.Development.json
 **/*.csproj.lscache
+.DS_Store

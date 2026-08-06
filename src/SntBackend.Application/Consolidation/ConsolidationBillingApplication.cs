@@ -11,8 +11,9 @@ namespace SntBackend.Application.Consolidation
     /// 合单账单实现：账单逻辑一份在 <see cref="BillingCore"/>，这里只固定 <see cref="BillingScope.Consol"/>。
     /// 与锚点无关的能力（按发票号反查费用、发票打印）直接转发 shipment 侧的 <see cref="IBillingApplication"/>。
     ///
-    /// 例外：<see cref="QueryChargeLine"/> 与 <see cref="GetBillingSummary"/> 走 <see cref="ConsolCostQuery"/>，
-    /// 因为合单的成本数据在 JobConsolCost 上而不在 BillingCore 读的 JobHeader('JK') → JobCharge 链路上。
+    /// 例外：<see cref="QueryChargeLine"/>、<see cref="QueryDraftPage"/> 与 <see cref="GetBillingSummary"/>
+    /// 走 <see cref="ConsolCostQuery"/>，因为合单的成本数据在 JobConsolCost 上，
+    /// 而不在 BillingCore 读的 JobHeader('JK') → JobCharge / AccTransactionHeader 链路上。
     /// </summary>
     public class ConsolidationBillingApplication : SntBackendApplicationBase, IConsolidationBillingApplication
     {
@@ -38,9 +39,22 @@ namespace SntBackend.Application.Consolidation
                 input?.SkipCount ?? 0, input?.MaxResultCount ?? 20, input?.Sorting);
         }
 
-        public Task<BillingDraftPageOutput> QueryDraftPage(ConsolBillingDraftPageInput input) =>
-            _billingCore.QueryDraftPageAsync(BillingScope.Consol, input?.jkPk, input?.chargeType,
+        public Task<BillingDraftPageOutput> QueryDraftPage(ConsolBillingDraftPageInput input)
+        {
+            // 合单侧同样绕开 BillingCore：它按 ah_jh -> JobHeader('JK') 找发票，而库里这种作业头
+            // 一条都没有，AnchorJobHeaderPksAsync 返回空后直接短路，接口恒返回空列表。
+            // 发票只能从成本行的 E6_AH_APInvoice 反查，见 ConsolCostQuery.QueryDraftPageAsync。
+            //
+            // AR 与 QueryChargeLine 一样无数据来源，返回空让前端 AR 页签显示空；
+            // chargeType 留空表示不按账本过滤，而合单侧只可能有 AP，所以与传 AP 等价。
+            var chargeType = input?.chargeType?.Trim();
+            if (!string.IsNullOrEmpty(chargeType) &&
+                !string.Equals(chargeType, "AP", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(new BillingDraftPageOutput());
+
+            return _consolCostQuery.QueryDraftPageAsync(input?.jkPk,
                 input?.SkipCount ?? 0, input?.MaxResultCount ?? 20, input?.Sorting);
+        }
 
         public async Task<BillingSummaryDto> GetBillingSummary(string jkPk)
         {

@@ -1,6 +1,8 @@
 using Abp.Dependency;
 using Dapper;
+using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Consolidation.Dto;
+using SntBackend.Application.Po.Dto;
 using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
@@ -106,12 +108,15 @@ SELECT
     e6.E6_AH_APInvoice         AS ap_invoice_pk,
     ap.ah_transactionnum       AS ap_invoice_no,
     ap.ah_invoicedate          AS ap_invoice_date,
+    ap.ah_iscancelled          AS ap_invoice_is_cancelled,
     -- 已过账(ah_postdate 有值)= N；未链接发票或仍是草稿 = Y
     CASE WHEN ap.ah_postdate IS NOT NULL THEN 'N' ELSE 'Y' END AS Draft
 FROM JobConsolCost e6
 LEFT JOIN AccChargeCode        cc ON cc.ac_pk = e6.E6_AC_ChargeCode
 LEFT JOIN OrgHeader            cr ON cr.oh_pk = e6.E6_OH_Creditor
-LEFT JOIN AccTransactionHeader ap ON ap.ah_pk = e6.E6_AH_APInvoice AND ap.ah_iscancelled = 0
+-- 不按 ah_iscancelled 过滤：发票作废后仍要带出发票号/日期，由前端按 ap_invoice_is_cancelled
+-- 展示状态。否则作废会让这几列变空、Draft 翻回 'Y'，与草稿箱列表里的作废状态对不上。
+LEFT JOIN AccTransactionHeader ap ON ap.ah_pk = e6.E6_AH_APInvoice
 {CostWhere}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -223,6 +228,87 @@ ORDER BY js.js_uniqueconsignref, jr.jr_pk
                 if (!string.IsNullOrWhiteSpace(item.e6_pk) && map.TryGetValue(item.e6_pk, out var list))
                     item.cost_items = list;
             }
+        }
+
+        /// <summary>
+        /// 按合单分页查询 AP 发票头（草稿箱）。
+        ///
+        /// 合单到发票的唯一通路是成本行上的外键：
+        ///   JobConsolCost(E6_ParentID = jkPk, E6_ParentTableCode = 'JK').E6_AH_APInvoice
+        ///     └──> AccTransactionHeader.ah_pk
+        /// 而不是 <see cref="Billing.BillingCore"/> 走的 ah_jh -> JobHeader('JK')：库里这种作业头
+        /// 一条都没有（见本类头部注释），那条链路在合单侧恒为空。
+        ///
+        /// 多条成本行可以指向同一张发票，按 ah_pk 分组去重后每张发票一行；
+        /// 分组时顺带算出 apportioned_local_amount（见该字段注释：跨合单发票的本单归属额）。
+        /// 已过账的发票一并返回，用 Draft 列区分，与 <see cref="QueryCostLineAsync"/> 同口径；
+        /// 已作废的同样一并返回（不过滤 ah_iscancelled），由前端按该列展示状态。
+        /// </summary>
+        public async Task<BillingDraftPageOutput> QueryDraftPageAsync(string jkPk,
+            int skipCount, int maxResultCount, string sorting)
+        {
+            if (string.IsNullOrWhiteSpace(jkPk))
+                throw new Exception("jkPk cannot be empty.");
+
+            var orderBy = !string.IsNullOrWhiteSpace(sorting) &&
+                          sorting.IndexOf("DESC", StringComparison.OrdinalIgnoreCase) >= 0
+                ? "ORDER BY ah.ah_invoicedate DESC, ah.ah_pk DESC"
+                : "ORDER BY ah.ah_invoicedate, ah.ah_pk";
+
+            var dp = new DynamicParameters();
+            AddJkPk(dp, jkPk);
+            dp.Add("skipCount", skipCount);
+            dp.Add("takeCount", maxResultCount);
+
+            // CTE 的作用域只到紧跟的那条语句，两条语句各写一份。
+            // 取负号：E6_LocalCostAmount 存的是正数，而 AP 在 AccTransactionHeader 里存负数
+            // （实测同一行 ah_invoiceamount = -96047 对分摊额 4302）。同一行上两个金额必须同号，
+            // 否则前端并排展示或做占比会出错。注意由此与 GetApSummaryAsync 返回的正数符号相反。
+            const string invoiceCte = @"
+WITH inv AS (
+    SELECT e6.E6_AH_APInvoice           AS ah_pk,
+           -SUM(e6.E6_LocalCostAmount)  AS apportioned_local_amount
+    FROM JobConsolCost e6
+    WHERE e6.E6_ParentID = @jkPk
+        AND e6.E6_ParentTableCode = 'JK'
+        AND e6.E6_AH_APInvoice IS NOT NULL
+    GROUP BY e6.E6_AH_APInvoice
+)";
+
+            // 不按 ah_iscancelled 过滤：作废的发票也要出现在列表里，由前端按 ah_iscancelled 展示状态
+            // （与 shipment 侧 BillingApplication 的 ah_iscancelled = 0 不同，对齐 first-cargo 合单草稿箱
+            // 的行为，也与本类 CostWhere 不过滤 E6_IsValid 的取舍一致）。ah.* 已带出该列。
+            var totalSql = $@"
+{invoiceCte}
+SELECT COUNT(*)
+FROM inv i
+INNER JOIN AccTransactionHeader ah ON ah.ah_pk = i.ah_pk
+";
+            var pageSql = $@"
+{invoiceCte}
+SELECT
+    ah.*,
+    o.oh_fullname,
+    i.apportioned_local_amount,
+    CASE WHEN ah.ah_postdate IS NOT NULL THEN 'N' ELSE 'Y' END AS Draft
+FROM inv i
+INNER JOIN AccTransactionHeader ah ON ah.ah_pk = i.ah_pk
+LEFT JOIN OrgHeader o ON o.OH_PK = ah.ah_oh
+{orderBy}
+OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+";
+
+            var output = new BillingDraftPageOutput();
+            using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
+{totalSql};
+{pageSql}
+", dp))
+            {
+                output.TotalCount = await multi.ReadFirstAsync<int>();
+                output.Items = (await multi.ReadAsync<AccTransactionHeaderDtoOutput>()).ToList();
+            }
+
+            return output;
         }
 
         /// <summary>

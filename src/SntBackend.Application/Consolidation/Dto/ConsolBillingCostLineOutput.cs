@@ -93,6 +93,13 @@ namespace SntBackend.Application.Consolidation.Dto
         public DateTime? ap_invoice_date { get; set; }
 
         /// <summary>
+        /// AP 发票是否已作废 AccTransactionHeader.ah_iscancelled（1 = 已作废）。
+        /// 作废的发票不过滤掉，发票号/日期照常带出，由前端按本字段展示状态 ——
+        /// 与草稿箱 QueryDraftPage 不过滤 ah_iscancelled 的口径一致。未链接发票时为 null。
+        /// </summary>
+        public int? ap_invoice_is_cancelled { get; set; }
+
+        /// <summary>
         /// 已过账(ah_postdate 有值) = N；未链接发票或仍是草稿 = Y。
         /// 与 shipment 侧 <see cref="Billing.Dto.BillingChargeLineItem.Draft"/> 同口径。
         /// </summary>

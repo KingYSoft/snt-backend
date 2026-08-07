@@ -4,6 +4,7 @@ using SntBackend.Application.Shipment.Dto;
 using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -119,7 +120,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
         public async Task<ShipmentDetailOutput> Detail(string id)
         {
             var dp = new DynamicParameters();
-            dp.Add("id", id);
+            dp.Add("id", id, DbType.AnsiString);
 
             var sql = @"
 SELECT t.*, 
@@ -166,30 +167,26 @@ WHERE t.jdd_parentid = @id
 SELECT t.XV_Name, t.XV_Data
 FROM GenCustomAddOnValue t
 WHERE t.Xv_ParentID = @id;
-
--- FCL：装箱明细(JobPackLines，货物) + 集装箱(JobContainer)，经中间表 JobContainerPackPivot 平铺
--- 每行 = 一条货物明细携带其所属集装箱（J6_JL = jl_pk，J6_JC = jc_pk）
--- 一个集装箱含两条货物明细 => 返回两行，两行的集装箱相同
-SELECT jl.*, jc.*
-FROM JobPackLines jl
-INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
-INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
-WHERE jl.jl_js = @id;
 ";
 
-            using var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp);
+            ShipmentDetailOutput detail;
+            List<JobDocAddressDtoOutput> addrs;
+            List<OrgAddressWithHeaderDtoOutput> orgAddrs;
+            List<JobPackLinesDtoOutput> packLines;
+            JobDocumentDataDtoOutput docData;
+            List<GenCustomAddOnValueDtoOutput> customValues;
 
-            var detail = await multi.ReadFirstOrDefaultAsync<ShipmentDetailOutput>();
-            if (detail == null) return null;
+            using (var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp))
+            {
+                detail = await multi.ReadFirstOrDefaultAsync<ShipmentDetailOutput>();
+                if (detail == null) return null;
 
-            var addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
-            var orgAddrs = (await multi.ReadAsync<OrgAddressWithHeaderDtoOutput>()).ToList();
-            var packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
-            var docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
-            var customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
-            // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container
-            var containers = multi.Read<ShipmentContainerOutput, JobContainerDtoOutput, ShipmentContainerOutput>(
-                (l, c) => { l.container = c; return l; }, splitOn: "jc_pk").ToList();
+                addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
+                orgAddrs = (await multi.ReadAsync<OrgAddressWithHeaderDtoOutput>()).ToList();
+                packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
+                docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
+                customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
+            }
 
             // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
             var shipperTemp = addrs.FirstOrDefault(a => a.e2_addresstype == "CRD");
@@ -214,7 +211,7 @@ WHERE jl.jl_js = @id;
             // FCL：集装箱 + 装箱明细经中间表 JobContainerPackPivot 平铺，每行一个集装箱携带其一条明细
             if (detail.js_transportmode == "SEA" && detail.js_packingmode == "FCL")
             {
-                detail.containers_list = containers;
+                detail.containers_list = await QueryFclContainers(id);
             }
             else
             {
@@ -225,6 +222,32 @@ WHERE jl.jl_js = @id;
             detail.custom_values = customValues;
 
             return detail;
+        }
+
+        /// <summary>
+        /// FCL：装箱明细(JobPackLines，货物) + 集装箱(JobContainer)，经中间表 JobContainerPackPivot 平铺。
+        /// 每行 = 一条货物明细携带其所属集装箱（J6_JL = jl_pk，J6_JC = jc_pk）；
+        /// 一个集装箱含两条货物明细 => 返回两行，两行的集装箱相同。
+        ///
+        /// 这条三表 join 的结果只在 SEA + FCL 时使用，故从 Detail 的批量查询里拆出来单独按需执行，
+        /// 空运和散货的详情请求不必再为它付代价。
+        /// </summary>
+        private async Task<List<ShipmentContainerOutput>> QueryFclContainers(string id)
+        {
+            var dp = new DynamicParameters();
+            dp.Add("id", id, DbType.AnsiString);
+
+            using var multi = await _appSqlServerRepository.QueryMultipleAsync(@"
+SELECT jl.*, jc.*
+FROM JobPackLines jl
+INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
+INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
+WHERE jl.jl_js = @id;
+", dp);
+
+            // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container
+            return multi.Read<ShipmentContainerOutput, JobContainerDtoOutput, ShipmentContainerOutput>(
+                (l, c) => { l.container = c; return l; }, splitOn: "jc_pk").ToList();
         }
 
         public async Task<ShipmentQueryConsolTransportOutput> QueryConsolTransport(ShipmentQueryConsolTransportInput input)

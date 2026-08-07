@@ -848,6 +848,10 @@ WHERE oh.oh_pk = @oh
 ";
             var billingParty = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(partySql, partyDp);
 
+            // ah.* 取不到这两个扩展字段（非 AccTransactionHeader 的列），与合单侧列表口径对齐后补上
+            head.oh_fullname = billingParty;
+            head.Draft = head.ah_postdate != null ? "N" : "Y";
+
             var linesDp = new DynamicParameters();
             linesDp.Add("ahPk", head.ah_pk);
             var linesSql = @"
@@ -875,6 +879,7 @@ ORDER BY al.al_sequence
 
                 var linePks = lines.Select(x => x.al_pk).ToList();
 
+                // 投影列与 BillingCore.QueryChargeLineAsync 保持一致，避免前端两处取到的字段不齐
                 var chargesSql = $@"
 SELECT
     jr.jr_pk,
@@ -886,23 +891,46 @@ SELECT
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
+    -- 数量：优先取已开票行(al_unitqty)，否则回退 JobCharge.jr_productquantity
+    COALESCE(line.al_unitqty, jr.jr_productquantity) AS qty,
+    -- 单价：优先取已开票行(al_unitprice)，否则按 原币金额/数量 计算（数量为 0 时为 NULL）
+    COALESCE(line.al_unitprice,
+             CASE WHEN jr.jr_productquantity <> 0 THEN {osAmountCol} / jr.jr_productquantity END) AS unit_price,
     {currencyCol}  AS currency,
     {partyCol}     AS party_oh,
     {rateCol}      AS exchange_rate,
     {gstCol}       AS gst_rate,
     {whtCol}       AS wht_rate,
     {vatCol}       AS vat_class,
+    jr.jr_invoicetype AS jr_invoicetype,
+    jr.jr_gb          AS jr_gb,
+    gb.gb_code        AS branch_code,
+    gb.gb_branchname  AS branch_name,
+    party.oh_code     AS party_code,
+    party.oh_fullname AS party_name,
     {lineCol}      AS line_pk,
     @ahPk          AS invoice_pk,
     @invoiceNo     AS invoice_no,
-    NULL           AS invoice_date,
-    'N'            AS Draft
+    @invoiceDate   AS invoice_date,
+    @draft         AS Draft
 FROM JobCharge jr
+LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
+LEFT JOIN GlbBranch gb ON gb.gb_pk = jr.jr_gb
+LEFT JOIN OrgHeader party ON party.oh_pk = {partyCol}
 LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
 WHERE {lineCol} IN @linePks
 ORDER BY jr.jr_displaysequence, jr.jr_pk
 ";
-                charges = (await _appSqlServerRepository.QueryAsync<BillingChargeLineItem>(chargesSql, new { linePks, ahPk = head.ah_pk, invoiceNo = invoiceNo })).ToList();
+                charges = (await _appSqlServerRepository.QueryAsync<BillingChargeLineItem>(chargesSql, new
+                {
+                    linePks,
+                    ahPk = head.ah_pk,
+                    // 走 ah_consolidatedinvoiceref 命中时，入参不是这张单的发票号，统一回填表头的真实发票号
+                    invoiceNo = head.ah_transactionnum,
+                    invoiceDate = head.ah_invoicedate,
+                    // 已过账(ah_postdate 有值)= N；仍是草稿(postdate 为空)= Y
+                    draft = head.ah_postdate != null ? "N" : "Y"
+                })).ToList();
             }
 
             return new QueryChargesByInvoiceOutput

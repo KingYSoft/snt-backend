@@ -107,16 +107,46 @@ SELECT
     e6.E6_PaymentType          AS payment_type,
     e6.E6_AH_APInvoice         AS ap_invoice_pk,
     ap.ah_transactionnum       AS ap_invoice_no,
+    ap.ah_transactionnum       AS trans_no,
     ap.ah_invoicedate          AS ap_invoice_date,
     ap.ah_iscancelled          AS ap_invoice_is_cancelled,
+    -- 税代码：E6_AT_TaxRate 实测 1348 行里 1344 行有值，而 E6_A9_VATClass 全空
+    at1.AT_Code                AS tax_code,
+    at1.AT_Description         AS tax_desc,
+    -- 分公司/部门：JobConsolCost 上没有（E6_GB_CostTaxBranch 实测全空），
+    -- 取所链接 AP 发票头上的 ah_gb / ah_ge（AP 侧 95803 张全部有值）
+    gb.GB_Code                 AS branch_code,
+    gb.GB_BranchName           AS branch_name,
+    ge.GE_Code                 AS dept_code,
+    ge.GE_Desc                 AS dept_desc,
+    -- E6_Description 实测 100% 为空，展示用描述回退到费用代码描述
+    COALESCE(NULLIF(e6.E6_Description, ''), cc.ac_desc) AS display_description,
+    -- 数量 / 单位 / 单价：JobConsolCost 上没有这三列，它们在计价依据表 JobPaymentBasis 上
+    pb.qty, pb.unit, pb.unit_price, pb.rating_line_count,
     -- 已过账(ah_postdate 有值)= N；未链接发票或仍是草稿 = Y
     CASE WHEN ap.ah_postdate IS NOT NULL THEN 'N' ELSE 'Y' END AS Draft
 FROM JobConsolCost e6
-LEFT JOIN AccChargeCode        cc ON cc.ac_pk = e6.E6_AC_ChargeCode
-LEFT JOIN OrgHeader            cr ON cr.oh_pk = e6.E6_OH_Creditor
+LEFT JOIN AccChargeCode        cc  ON cc.ac_pk = e6.E6_AC_ChargeCode
+LEFT JOIN OrgHeader            cr  ON cr.oh_pk = e6.E6_OH_Creditor
+LEFT JOIN AccTaxRate           at1 ON at1.AT_PK = e6.E6_AT_TaxRate
 -- 不按 ah_iscancelled 过滤：发票作废后仍要带出发票号/日期，由前端按 ap_invoice_is_cancelled
 -- 展示状态。否则作废会让这几列变空、Draft 翻回 'Y'，与草稿箱列表里的作废状态对不上。
-LEFT JOIN AccTransactionHeader ap ON ap.ah_pk = e6.E6_AH_APInvoice
+LEFT JOIN AccTransactionHeader ap  ON ap.ah_pk = e6.E6_AH_APInvoice
+LEFT JOIN GlbBranch            gb  ON gb.GB_PK = ap.ah_gb
+LEFT JOIN GlbDepartment        ge  ON ge.GE_PK = ap.ah_ge
+-- 计价依据：一条成本行通常只有一条（实测 353 条里 347 条如此），
+-- 但混装时会拆成多条且费率/单位各不相同（实测 6 条是 20GP + 40HC 两档），
+-- 这种情况下把 unit / unit_price 置空，只给出合计数量，由前端按 rating_line_count 提示多档。
+OUTER APPLY (
+    SELECT SUM(pbs.PBS_ChargeableAmount) AS qty,
+           CASE WHEN COUNT(DISTINCT pbs.PBS_ChargeableUnit) = 1
+                THEN MIN(pbs.PBS_ChargeableUnit) END AS unit,
+           CASE WHEN COUNT(DISTINCT pbs.PBS_PerUnitRate) = 1
+                THEN MIN(pbs.PBS_PerUnitRate) END  AS unit_price,
+           COUNT(*)                                AS rating_line_count
+    FROM JobPaymentBasis pbs
+    WHERE pbs.PBS_E6 = e6.E6_PK
+) pb
 {CostWhere}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -290,10 +320,12 @@ SELECT
     ah.*,
     o.oh_fullname,
     i.apportioned_local_amount,
+{Billing.AccTransactionHeaderSql.DisplayColumns("ah")},
     CASE WHEN ah.ah_postdate IS NOT NULL THEN 'N' ELSE 'Y' END AS Draft
 FROM inv i
 INNER JOIN AccTransactionHeader ah ON ah.ah_pk = i.ah_pk
 LEFT JOIN OrgHeader o ON o.OH_PK = ah.ah_oh
+{Billing.AccTransactionHeaderSql.DisplayJoins("ah")}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";

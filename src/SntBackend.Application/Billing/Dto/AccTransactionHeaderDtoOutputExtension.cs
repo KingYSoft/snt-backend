@@ -28,5 +28,33 @@ namespace SntBackend.Application.Po.Dto
         /// 仅合单侧查询填充，shipment 侧为 null。
         /// </summary>
         public decimal? apportioned_local_amount { get; set; }
+
+        /// <summary>
+        /// 发票金额（不含税，本位币）= ah_invoiceamount。
+        /// 这几个别名的口径与验证见
+        /// <see cref="SntBackend.Application.Billing.AccTransactionHeaderSql"/>。
+        /// </summary>
+        public decimal? amount_tax_excl { get; set; }
+
+        /// <summary>税额（本位币）= ah_gstamount</summary>
+        public decimal? tax_amount { get; set; }
+
+        /// <summary>发票金额（含税，本位币）= ah_localtotal = amount_tax_excl + tax_amount</summary>
+        public decimal? amount_tax_incl { get; set; }
+
+        /// <summary>发票金额（含税，原币）= ah_ostotal，币种见 ah_rx_nktransactioncurrency</summary>
+        public decimal? os_amount_tax_incl { get; set; }
+
+        /// <summary>分公司代码 ah_gb → GlbBranch.GB_Code</summary>
+        public string branch_code { get; set; }
+
+        /// <summary>分公司名称 GlbBranch.GB_BranchName</summary>
+        public string branch_name { get; set; }
+
+        /// <summary>部门代码 ah_ge → GlbDepartment.GE_Code</summary>
+        public string dept_code { get; set; }
+
+        /// <summary>部门描述 GlbDepartment.GE_Desc</summary>
+        public string dept_desc { get; set; }
     }
 }

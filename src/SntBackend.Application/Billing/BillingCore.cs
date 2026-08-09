@@ -133,11 +133,8 @@ SELECT
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
-    -- 数量：优先取已开票行(al_unitqty)，否则回退 JobCharge.jr_productquantity
-    COALESCE(line.al_unitqty, jr.jr_productquantity) AS qty,
-    -- 单价：优先取已开票行(al_unitprice)，否则按 原币金额/数量 计算（数量为 0 时为 NULL）
-    COALESCE(line.al_unitprice,
-             CASE WHEN jr.jr_productquantity <> 0 THEN {osAmountCol} / jr.jr_productquantity END) AS unit_price,
+    -- 数量 / 单位 / 单价：见 ChargeRatingSql，来源是计价依据表 JobPaymentBasis
+{ChargeRatingSql.Columns("line")},
     {currencyCol}  AS currency,
     {partyCol}     AS party_oh,
     {rateCol}      AS exchange_rate,
@@ -164,6 +161,7 @@ LEFT JOIN AccTransactionHeader inv ON inv.ah_pk = line.al_ah AND inv.ah_iscancel
 LEFT JOIN GlbBranch gb ON gb.gb_pk = jr.jr_gb
 LEFT JOIN OrgHeader party ON party.oh_pk = {partyCol}
 LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
+{ChargeRatingSql.ByCharge("jr", isCost: isAp)}
 {anchorWhere}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -238,8 +236,10 @@ FROM AccTransactionHeader ah
 {where}
 ";
             var pageSql = $@"
-SELECT ah.*
+SELECT ah.*,
+{AccTransactionHeaderSql.DisplayColumns("ah")}
 FROM AccTransactionHeader ah
+{AccTransactionHeaderSql.DisplayJoins("ah")}
 {where}
 {orderBy}
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY

@@ -132,9 +132,11 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*, o.oh_fullname
+SELECT t.*, o.oh_fullname,
+{AccTransactionHeaderSql.DisplayColumns("t")}
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+{AccTransactionHeaderSql.DisplayJoins("t")}
 WHERE 1 = 1
     AND t.ah_ledger = @ledger
     AND t.ah_iscancelled = 0
@@ -165,10 +167,12 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             var dp = new DynamicParameters();
             dp.Add("id", id);
 
-            var sql = @"
-SELECT t.*, o.oh_fullname
+            var sql = @$"
+SELECT t.*, o.oh_fullname,
+{AccTransactionHeaderSql.DisplayColumns("t")}
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+{AccTransactionHeaderSql.DisplayJoins("t")}
 WHERE t.ah_pk = @id
 ";
             return await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
@@ -826,9 +830,11 @@ ORDER BY b.ab_accountnum
 
             // 作废的发票不返回；但作废产生的 CRD 冲销单自身也是 ah_iscancelled=1（对齐库内惯例），
             // 前端点已作废发票要能看到这张冲销单，所以对 CRD 放行。同号时优先取仍然有效的那张。
-            var headSql = @"
-SELECT TOP 1 ah.*
+            var headSql = @$"
+SELECT TOP 1 ah.*,
+{AccTransactionHeaderSql.DisplayColumns("ah")}
 FROM AccTransactionHeader ah
+{AccTransactionHeaderSql.DisplayJoins("ah")}
 WHERE (ah.ah_transactionnum = @invoiceNo OR ah.ah_consolidatedinvoiceref = @invoiceNo)
     AND (ah.ah_iscancelled = 0 OR ah.ah_transactiontype = 'CRD')
 ORDER BY ah.ah_iscancelled, ah.ah_invoicedate DESC, ah.ah_pk DESC
@@ -854,9 +860,25 @@ WHERE oh.oh_pk = @oh
 
             var linesDp = new DynamicParameters();
             linesDp.Add("ahPk", head.ah_pk);
+            // al_gb / al_ge 实测 203 万行全部有值，但存的是 pk，展示要 join 出代码名称；
+            // 税代码同理走 al_at。注意 al_unitqty / al_unitprice 实测几乎全空
+            // （203 万行里分别只有 22 / 15 行非零），数量单价请用下面的 Charges（那边有
+            // 回退到 JobCharge.jr_productquantity 的逻辑）。
             var linesSql = @"
-SELECT al.*
+SELECT al.*,
+    ac.ac_code       AS charge_code,
+    ac.ac_desc       AS charge_desc,
+    at1.AT_Code      AS tax_code,
+    at1.AT_Description AS tax_desc,
+    gb.GB_Code       AS branch_code,
+    gb.GB_BranchName AS branch_name,
+    ge.GE_Code       AS dept_code,
+    ge.GE_Desc       AS dept_desc
 FROM AccTransactionLines al
+LEFT JOIN AccChargeCode   ac  ON ac.ac_pk  = al.al_ac
+LEFT JOIN AccTaxRate      at1 ON at1.AT_PK = al.al_at
+LEFT JOIN GlbBranch       gb  ON gb.GB_PK  = al.al_gb
+LEFT JOIN GlbDepartment   ge  ON ge.GE_PK  = al.al_ge
 WHERE al.al_ah = @ahPk
 ORDER BY al.al_sequence
 ";
@@ -891,11 +913,8 @@ SELECT
     jr.jr_desc,
     {amountCol}    AS amount,
     {osAmountCol}  AS os_amount,
-    -- 数量：优先取已开票行(al_unitqty)，否则回退 JobCharge.jr_productquantity
-    COALESCE(line.al_unitqty, jr.jr_productquantity) AS qty,
-    -- 单价：优先取已开票行(al_unitprice)，否则按 原币金额/数量 计算（数量为 0 时为 NULL）
-    COALESCE(line.al_unitprice,
-             CASE WHEN jr.jr_productquantity <> 0 THEN {osAmountCol} / jr.jr_productquantity END) AS unit_price,
+    -- 数量 / 单位 / 单价：见 ChargeRatingSql，来源是计价依据表 JobPaymentBasis
+{ChargeRatingSql.Columns("line")},
     {currencyCol}  AS currency,
     {partyCol}     AS party_oh,
     {rateCol}      AS exchange_rate,
@@ -918,6 +937,7 @@ LEFT JOIN AccTransactionLines line ON line.al_pk = {lineCol}
 LEFT JOIN GlbBranch gb ON gb.gb_pk = jr.jr_gb
 LEFT JOIN OrgHeader party ON party.oh_pk = {partyCol}
 LEFT JOIN AccChargeCode cc ON cc.ac_pk = jr.jr_ac
+{ChargeRatingSql.ByCharge("jr", isCost: !isAr)}
 WHERE {lineCol} IN @linePks
 ORDER BY jr.jr_displaysequence, jr.jr_pk
 ";

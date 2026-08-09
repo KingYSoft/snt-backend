@@ -220,8 +220,57 @@ WHERE t.Xv_ParentID = @id;
 
             detail.doc_data = docData;
             detail.custom_values = customValues;
+            FillCustomFields(detail);
 
             return detail;
+        }
+
+        /// <summary>
+        /// 把 GenCustomAddOnValue 的数组拍平成字典 + 具名字段。
+        ///
+        /// 前端反馈"返回的是个数组，里面找不到 Controlling Customer Full Name"，实际数据是在的
+        /// （库里该名字有 53593 条），只是要按 XV_Name 在数组里找。这里直接给出字典和具名字段。
+        ///
+        /// 名字大小写在库里并不统一（'OP AT POL' 全大写、'Customer Service' 首字母大写），
+        /// 所以字典用忽略大小写的比较器；Customer Service 另有拼写变体 'Coustomer Service'（10 条），
+        /// 一并回退。
+        /// </summary>
+        private static void FillCustomFields(ShipmentDetailOutput detail)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in detail.custom_values)
+            {
+                var name = item.XV_Name?.Trim();
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                // 同名多行时保留第一条，避免后面的空值把有值的覆盖掉
+                if (!map.ContainsKey(name))
+                    map[name] = item.XV_Data;
+            }
+
+            detail.custom_fields = map;
+
+            string Get(params string[] names)
+            {
+                foreach (var n in names)
+                {
+                    if (map.TryGetValue(n, out var v) && !string.IsNullOrWhiteSpace(v))
+                        return v;
+                }
+                return null;
+            }
+
+            detail.controlling_customer = Get("Controlling Customer Full Name");
+            detail.entrusting_party = Get("ENTRUSTING PARTY");
+            detail.reject_release_reason = Get("Reject Release Reasons");
+            detail.customer_service = Get("Customer Service", "Coustomer Service");
+            detail.cs_email = Get("Customer Service Email");
+            detail.op_at_pol = Get("OP AT POL");
+            detail.op_at_pod = Get("OP AT POD");
+            detail.sea_pricing = Get("SEA PRICING");
+            detail.op_at_1st_booking_party = Get("OP AT 1ST BOOKING PARTY", "OP AT BOOKING PARTY");
+            detail.op_at_2nd_booking_party = Get("OP AT 2ND BOOKING PARTY");
+            detail.doc = Get("DOC");
         }
 
         /// <summary>
@@ -238,15 +287,33 @@ WHERE t.Xv_ParentID = @id;
             dp.Add("id", id, DbType.AnsiString);
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(@"
-SELECT jl.*, jc.*
+SELECT jl.*, jc.*,
+    -- RC_Code 是定长 char，不 RTRIM 会带出 '40HC      ' 这种尾随空格
+    RTRIM(rc.RC_Code) AS container_type_code,
+    rc.RC_Description AS container_type_desc,
+    agg.pack_count,
+    agg.pack_type,
+    agg.total_volume,
+    agg.total_weight
 FROM JobPackLines jl
 INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
 INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
+LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
+-- 箱级汇总：本行只带该箱其中一条明细，整箱件数/体积/毛重要把该箱所有明细加起来
+OUTER APPLY (
+    SELECT SUM(jl2.jl_packagecount)  AS pack_count,
+           MAX(jl2.jl_f3_nkpacktype) AS pack_type,
+           SUM(jl2.jl_actualvolume)  AS total_volume,
+           SUM(jl2.jl_actualweight)  AS total_weight
+    FROM JobContainerPackPivot p2
+    INNER JOIN JobPackLines jl2 ON jl2.jl_pk = p2.J6_JL
+    WHERE p2.J6_JC = jc.jc_pk
+) agg
 WHERE jl.jl_js = @id;
 ", dp);
 
             // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container
-            return multi.Read<ShipmentContainerOutput, JobContainerDtoOutput, ShipmentContainerOutput>(
+            return multi.Read<ShipmentContainerOutput, ShipmentContainerInfoOutput, ShipmentContainerOutput>(
                 (l, c) => { l.container = c; return l; }, splitOn: "jc_pk").ToList();
         }
 

@@ -35,8 +35,16 @@ namespace SntBackend.Application.Consolidation.Dto
         /// <summary>费用代码描述 AccChargeCode.ac_desc（显示用）</summary>
         public string charge_desc { get; set; }
 
-        /// <summary>费用说明 E6_Description</summary>
+        /// <summary>
+        /// 费用说明 E6_Description。实测该列 100% 为空（JobConsolCost 上 1348 行无一有值），
+        /// 展示请用 <see cref="display_description"/>。
+        /// </summary>
         public string description { get; set; }
+
+        /// <summary>
+        /// 展示用说明：E6_Description 有值时取它，否则回退费用代码描述 AccChargeCode.ac_desc。
+        /// </summary>
+        public string display_description { get; set; }
 
         /// <summary>原币币种 E6_RX_NKCurrency</summary>
         public string currency { get; set; }
@@ -49,6 +57,33 @@ namespace SntBackend.Application.Consolidation.Dto
 
         /// <summary>汇率 E6_ExchangeRate</summary>
         public decimal? exchange_rate { get; set; }
+
+        /// <summary>
+        /// 数量 = SUM(JobPaymentBasis.PBS_ChargeableAmount)（PBS_E6 = 本行 E6_PK）。
+        ///
+        /// JobConsolCost 表本身没有数量/单位/单价列，这三个值在计价依据表 JobPaymentBasis 上。
+        /// 实测校验：qty × unit_price = E6_OSCostAmount（如 4 × 295 = 1180）。
+        /// 覆盖率有限：1348 条成本行里只有 353 条挂了计价依据，其余为 null。
+        /// </summary>
+        public decimal? qty { get; set; }
+
+        /// <summary>
+        /// 计价单位 JobPaymentBasis.PBS_ChargeableUnit，实测取值是箱型（如 '40HC'）。
+        /// 一条成本行有多档费率时（混装）为 null，见 <see cref="rating_line_count"/>。
+        /// </summary>
+        public string unit { get; set; }
+
+        /// <summary>
+        /// 单价 JobPaymentBasis.PBS_PerUnitRate。多档费率时为 null，见 <see cref="rating_line_count"/>。
+        /// </summary>
+        public decimal? unit_price { get; set; }
+
+        /// <summary>
+        /// 该成本行的计价依据条数。1 = 单一费率（<see cref="unit"/> / <see cref="unit_price"/> 有值）；
+        /// &gt;1 = 混装多档（如 20GP + 40HC 两种费率），此时只有 <see cref="qty"/> 是合计值，
+        /// 单位与单价置空，前端应提示"多档费率"而不是硬凑一个数。0 或 null = 没有计价依据。
+        /// </summary>
+        public int? rating_line_count { get; set; }
 
         /// <summary>本位币成本金额 E6_LocalCostAmount。子行 cost_items 的金额之和应等于该值。</summary>
         public decimal? local_cost_amount { get; set; }
@@ -74,8 +109,32 @@ namespace SntBackend.Application.Consolidation.Dto
         /// <summary>分摊方式 E6_ApportionmentMethod</summary>
         public string apportionment_method { get; set; }
 
-        /// <summary>税率分类 pk E6_A9_VATClass</summary>
+        /// <summary>
+        /// 税率分类 pk E6_A9_VATClass。实测该列在 JobConsolCost 上全空，
+        /// 税代码请用 <see cref="tax_code"/>。
+        /// </summary>
         public string vat_class { get; set; }
+
+        /// <summary>税代码 E6_AT_TaxRate → AccTaxRate.AT_Code（如 EXEMPT）</summary>
+        public string tax_code { get; set; }
+
+        /// <summary>税代码描述 AccTaxRate.AT_Description（如 Exempt Rated）</summary>
+        public string tax_desc { get; set; }
+
+        /// <summary>
+        /// 分公司代码。JobConsolCost 自身没有分公司列（E6_GB_CostTaxBranch 实测全空），
+        /// 取所链接 AP 发票头的 ah_gb → GlbBranch.GB_Code。未链接发票时为 null。
+        /// </summary>
+        public string branch_code { get; set; }
+
+        /// <summary>分公司名称 GlbBranch.GB_BranchName</summary>
+        public string branch_name { get; set; }
+
+        /// <summary>部门代码，来源同 <see cref="branch_code"/>：ah_ge → GlbDepartment.GE_Code</summary>
+        public string dept_code { get; set; }
+
+        /// <summary>部门描述 GlbDepartment.GE_Desc</summary>
+        public string dept_desc { get; set; }
 
         /// <summary>付款日期 E6_PaymentDate</summary>
         public DateTime? payment_date { get; set; }
@@ -88,6 +147,12 @@ namespace SntBackend.Application.Consolidation.Dto
 
         /// <summary>AP 发票号 AccTransactionHeader.ah_transactionnum</summary>
         public string ap_invoice_no { get; set; }
+
+        /// <summary>
+        /// Trans No.：与 <see cref="ap_invoice_no"/> 同源（ah_transactionnum），
+        /// 只是按前端列名再给一份，免得两边字段名对不上。
+        /// </summary>
+        public string trans_no { get; set; }
 
         /// <summary>AP 发票日期 AccTransactionHeader.ah_invoicedate</summary>
         public DateTime? ap_invoice_date { get; set; }

@@ -233,9 +233,20 @@ WHERE jh.JH_PK = @jhPk;
         /// 运输信息（第 4~7 段）——作业头挂合单(JH_ParentTableCode='JK')时用这套。
         /// 结果集的形状/列名与 <see cref="ShipmentContextSql"/> 完全一致，只换数据来源：
         /// 运单字段 → JobConsol 自身；拼箱链路 → 直接就是本合单；集装箱 → JobContainer.JC_JK。
+        ///
+        /// 注意：这条路径当前在本库里走不到 —— JobHeader 全表只有 'JS'(45236) 与 'TH'(240)
+        /// 两种 JH_ParentTableCode，一条 'JK' 都没有，所以 isConsolAnchor 恒为 false。
+        /// 合单的 AP 发票实测也是经 ah_jh / al_jh 落到挂运单的作业头，走 ShipmentContextSql。
+        /// 保留这套是为了库里一旦出现合单锚点时不至于打出空白单，不是当前生效逻辑。
         /// </summary>
         private const string ConsolContextSql = @"
 -- 4) 业务单 + 合单（合单没有分单号，HB/L 留空）
+--    重量/体积/计费重/件数不取 JobConsol 自己那几个 Check 结尾的列：实测 40353 行里
+--    JK_TotalShipmentActWeightCheck、JK_TotalShipmentActVolumeCheck 各只有 1 行非零，
+--    JK_ConsolChargeable 与 JK_TotalShipmentCountCheck 一行非零都没有 —— 这套列本库没维护。
+--    改成按 JobConShipLink 汇总该合单下各运单的实际货量（运单侧 43598/44851 行有毛重），
+--    与合单账单 ConsolCostQuery 的主行货量同一口径。单位取各运单一致时的那个
+--    （实测 40272 个合单没有一例混合单位）。
 SELECT TOP 1
     jh.JH_JobNum        AS job_num,
     jh.JH_TransportMode AS job_transport_mode,
@@ -243,14 +254,27 @@ SELECT TOP 1
     c.JK_TransportMode  AS transport_mode,
     c.JK_RL_NKLoadPort      AS origin,
     c.JK_RL_NKDischargePort AS destination,
-    c.JK_TotalShipmentActWeightCheck AS weight,
-    COALESCE(NULLIF(c.JK_CorrectedConsolWeightUnit, ''), c.JK_TotalShipmentActOtherUnit) AS weight_unit,
-    c.JK_TotalShipmentActVolumeCheck AS volume,
-    NULLIF(c.JK_CorrectedConsolVolumeUnit, '') AS volume_unit,
-    c.JK_ConsolChargeable AS chargeable,
-    c.JK_TotalShipmentCountCheck AS packs
+    agg.weight,
+    agg.weight_unit,
+    agg.volume,
+    agg.volume_unit,
+    agg.chargeable,
+    agg.packs
 FROM JobHeader jh
 LEFT JOIN JobConsol c ON c.JK_PK = jh.JH_ParentID AND jh.JH_ParentTableCode = 'JK'
+OUTER APPLY (
+    SELECT SUM(js.JS_ActualWeight)     AS weight,
+           CASE WHEN COUNT(DISTINCT js.JS_UnitOfWeight) = 1
+                THEN MIN(js.JS_UnitOfWeight) END AS weight_unit,
+           SUM(js.JS_ActualVolume)     AS volume,
+           CASE WHEN COUNT(DISTINCT js.JS_UnitOfVolume) = 1
+                THEN MIN(js.JS_UnitOfVolume) END AS volume_unit,
+           SUM(js.JS_ActualChargeable) AS chargeable,
+           SUM(js.JS_OuterPacks)       AS packs
+    FROM JobConShipLink jn
+    INNER JOIN JobShipment js ON js.JS_PK = jn.JN_JS
+    WHERE jn.JN_JK = c.JK_PK
+) agg
 WHERE jh.JH_PK = @jhPk;
 
 -- 5) 合单 + 第一程运输（船名航次 / ETD / ETA / 主单号）

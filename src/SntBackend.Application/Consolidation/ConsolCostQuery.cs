@@ -93,6 +93,8 @@ SELECT
     e6.E6_RX_NKCurrency        AS currency,
     e6.E6_OSCostAmount         AS os_cost_amount,
     e6.E6_OSGSTAmount          AS os_gst_amount,
+    -- Tax Amount：与 os_gst_amount 同源，按前端列名再给一份
+    e6.E6_OSGSTAmount          AS tax_amount,
     e6.E6_ExchangeRate         AS exchange_rate,
     e6.E6_LocalCostAmount      AS local_cost_amount,
     e6.E6_OH_Creditor          AS creditor_oh,
@@ -152,19 +154,83 @@ OUTER APPLY (
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
 
+            // 合单级货量：箱数 / 毛重 / 体积 / 计费重。与成本行无关，单独一条语句取一行再逐行
+            // 填到 Items 上，避免在分页查询里为每行重复算一次。
+            //
+            // 毛重/体积/计费重**不能**取 JobConsol 自己那几列。实测 JobConsol 40353 行里
+            // JK_TotalShipmentActWeightCheck / JK_TotalShipmentActVolumeCheck 各只有 1 行非零、
+            // JK_ConsolChargeable 一行非零都没有 —— 这套 "Check" 列在本库根本没维护。
+            // 改成按 JobConShipLink 汇总该合单下各运单的实际货量：JobShipment 侧
+            // 43598/44851 行有毛重，汇总后 39799/40272 个合单能拿到非零值。
+            // 单位取各运单一致时的那一个（实测 40272 个合单没有一个出现混合单位）。
+            //
+            // 箱数仍取 JobConsol 自己的箱：合单的箱直接挂 JobContainer.JC_JK 不经运单，
+            // 实测 38580 个合单挂到了箱，这列是有数据的。
+            //
+            // 注：发票 PDF 的合单上下文（InvoicePdfDataProvider.ConsolContextSql）目前还在读
+            // 那几个 JK_ 空列，所以合单发票上的 GROSS WEIGHT / CBM / CHARGEABLE 是空的。
+            // 属于既有问题，不在本次改动范围内。
+            var cargoSql = @"
+SELECT TOP 1
+    (SELECT COUNT(*) FROM JobContainer jc WHERE jc.JC_JK = jk.JK_PK) AS container_count,
+    agg.gross_weight,
+    agg.gross_weight_unit,
+    agg.cbm,
+    agg.cbm_unit,
+    agg.chargeable_weight
+FROM JobConsol jk
+OUTER APPLY (
+    SELECT SUM(js.js_actualweight)     AS gross_weight,
+           CASE WHEN COUNT(DISTINCT js.js_unitofweight) = 1
+                THEN MIN(js.js_unitofweight) END AS gross_weight_unit,
+           SUM(js.js_actualvolume)     AS cbm,
+           CASE WHEN COUNT(DISTINCT js.js_unitofvolume) = 1
+                THEN MIN(js.js_unitofvolume) END AS cbm_unit,
+           SUM(js.js_actualchargeable) AS chargeable_weight
+    FROM JobConShipLink jn
+    INNER JOIN JobShipment js ON js.js_pk = jn.jn_js
+    WHERE jn.jn_jk = jk.JK_PK
+) agg
+WHERE jk.JK_PK = @jkPk
+";
+
             var output = new ConsolBillingCostLineOutput();
+            ConsolCargoSummaryDto cargo = null;
             using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
 {totalSql};
-{pageSql}
+{pageSql};
+{cargoSql}
 ", dp))
             {
                 output.TotalCount = await multi.ReadFirstAsync<int>();
                 output.Items = (await multi.ReadAsync<ConsolBillingCostLineItem>()).ToList();
+                cargo = (await multi.ReadAsync<ConsolCargoSummaryDto>()).FirstOrDefault();
             }
+
+            ApplyCargoSummary(output.Items, cargo);
 
             await AttachCostItemsAsync(jkPk, output.Items);
 
             return output;
+        }
+
+        /// <summary>
+        /// 把合单级货量铺到本页每一行上（同一合单每行的值相同）。合单查不到时保持 null。
+        /// </summary>
+        private static void ApplyCargoSummary(List<ConsolBillingCostLineItem> items, ConsolCargoSummaryDto cargo)
+        {
+            if (cargo == null || items == null || items.Count == 0)
+                return;
+
+            foreach (var item in items)
+            {
+                item.container_count = cargo.container_count;
+                item.gross_weight = cargo.gross_weight;
+                item.gross_weight_unit = cargo.gross_weight_unit;
+                item.cbm = cargo.cbm;
+                item.cbm_unit = cargo.cbm_unit;
+                item.chargeable_weight = cargo.chargeable_weight;
+            }
         }
 
         /// <summary>
@@ -221,7 +287,14 @@ WHERE jn.jn_jk = @jkPk
             //  · 不 join AccTransactionLines / AccTransactionHeader：AccTransactionLines 有 203 万行
             //    且 al_pk 上没有任何索引（只有 (AL_AH,AL_Sequence) 与 (AL_JH,AL_AH)），
             //    按 al_pk join 会全表扫并直接把这个查询拖死。发票信息由主行的 E6_AH_APInvoice 提供。
-            var sql = @"
+            // 追加的计价 / 税 / 货量列都是每合单几十行级别的开销：
+            //  · jr_at_costgstrate / jr_oscostgstamt 不在上述索引的 INCLUDE 里，会多一次键查找，
+            //    但行数就这么点，比起换索引更划算；AccTaxRate 是小码表，join 可忽略。
+            //  · 计价依据走 ChargeRatingSql.ByCharge（PBS_JR + PBS_IsCost=1，AP 侧），与 shipment
+            //    账单页同一份 SQL 片段，保证两个页面的 Qty/Unit/Unit Price 口径一致。
+            //  · 箱数按运单的拼箱链路 JobPackLines(JL_JS) → JobContainerPackPivot → JobContainer 数，
+            //    不是合单那条 JC_JK；两者不是一回事，主行给的才是合单级箱数。
+            var sql = $@"
 SELECT
     jr.jr_e6                   AS e6_pk,
     jr.jr_pk                   AS jr_pk,
@@ -232,10 +305,66 @@ SELECT
     jr.jr_localcostamt         AS local_cost_amount,
     jr.jr_oscostamt            AS os_cost_amount,
     jr.jr_rx_nkcostcurrency    AS currency,
-    jr.jr_al_apline            AS ap_line_pk
+    jr.jr_al_apline            AS ap_line_pk,
+    -- 税：AP 侧取成本税率/成本税额，不是 sell 那一组
+    at1.AT_Code                AS tax_code,
+    at1.AT_Description         AS tax_desc,
+    jr.jr_oscostgstamt         AS tax_amount,
+    -- 数量 / 单位 / 单价：JobCharge 上没有，取计价依据表。取法见下方 OUTER APPLY 的说明。
+    COALESCE(pb.qty_cost,  pb.qty_sell)  AS qty,
+    COALESCE(pb.unit_cost, pb.unit_sell) AS unit,
+    -- 反算的商在 SQL 里会带一长串小数（136.0000000000000000000），统一收成 4 位再出去
+    CAST(COALESCE(pb.unit_price_cost,
+                  CASE WHEN COALESCE(pb.qty_cost, pb.qty_sell) > 0
+                       THEN jr.jr_oscostamt / COALESCE(pb.qty_cost, pb.qty_sell) END)
+         AS decimal(19, 4)) AS unit_price,
+    -- 单价是按 成本金额 / 数量 反算出来的（成本侧没报价档时），前端别当成对方的报价展示
+    CAST(CASE WHEN pb.unit_price_cost IS NULL AND COALESCE(pb.qty_cost, pb.qty_sell) > 0
+              THEN 1 ELSE 0 END AS bit) AS unit_price_is_derived,
+    CASE WHEN pb.cost_cnt > 0 THEN pb.cost_cnt ELSE pb.sell_cnt END AS rating_line_count,
+    -- 该子行所属运单的货量
+    js.js_actualweight         AS gross_weight,
+    js.js_unitofweight         AS gross_weight_unit,
+    js.js_actualvolume         AS cbm,
+    js.js_unitofvolume         AS cbm_unit,
+    js.js_actualchargeable     AS chargeable_weight,
+    ct.container_count         AS container_count
 FROM JobCharge jr
 INNER JOIN JobHeader  jh ON jh.jh_pk = jr.jr_jh
 LEFT JOIN JobShipment js ON js.js_pk = jh.jh_parentid
+LEFT JOIN AccTaxRate  at1 ON at1.AT_PK = jr.jr_at_costgstrate
+-- 计价依据。这里不能直接用 ChargeRatingSql.ByCharge 的 AP 侧片段：那个片段按
+-- PBS_IsCost = 1 只取成本侧，而合单分摊出来的费用行实测几乎没有成本侧计价依据 ——
+-- 337 条挂在 jr_e6 非空费用行上的 JobPaymentBasis 里，332 条是 PBS_IsCost = 0（卖价侧），
+-- 成本侧只有 5 条。按成本侧过滤等于把这三列全滤成 null（前端反馈的就是这个现象）。
+--
+-- 取法：数量与单位是物理量（如 2 × 40HC），两侧本来就一样，成本侧没有就用卖价侧；
+-- 单价两侧不同（实测 Ocean Freight 成本 3800 / 卖价 4250），只认成本侧的报价档，
+-- 没有就按 成本金额 / 数量 反算，并用 unit_price_is_derived = 1 标出来，
+-- 免得前端把反算值当成供应商报价。shipment 侧成本行有正常的 IsCost = 1 数据，
+-- 那边继续用 ChargeRatingSql，不受本处影响。
+OUTER APPLY (
+    SELECT
+        SUM(CASE WHEN pbs.PBS_IsCost = 1 THEN pbs.PBS_ChargeableAmount END) AS qty_cost,
+        SUM(CASE WHEN pbs.PBS_IsCost = 0 THEN pbs.PBS_ChargeableAmount END) AS qty_sell,
+        -- 混装多档（同一行几种箱型/费率）时置空，只保留合计数量，由 rating_line_count 提示
+        CASE WHEN COUNT(DISTINCT CASE WHEN pbs.PBS_IsCost = 1 THEN pbs.PBS_ChargeableUnit END) = 1
+             THEN MIN(CASE WHEN pbs.PBS_IsCost = 1 THEN pbs.PBS_ChargeableUnit END) END AS unit_cost,
+        CASE WHEN COUNT(DISTINCT CASE WHEN pbs.PBS_IsCost = 0 THEN pbs.PBS_ChargeableUnit END) = 1
+             THEN MIN(CASE WHEN pbs.PBS_IsCost = 0 THEN pbs.PBS_ChargeableUnit END) END AS unit_sell,
+        CASE WHEN COUNT(DISTINCT CASE WHEN pbs.PBS_IsCost = 1 THEN pbs.PBS_PerUnitRate END) = 1
+             THEN MIN(CASE WHEN pbs.PBS_IsCost = 1 THEN pbs.PBS_PerUnitRate END) END AS unit_price_cost,
+        SUM(CASE WHEN pbs.PBS_IsCost = 1 THEN 1 ELSE 0 END) AS cost_cnt,
+        SUM(CASE WHEN pbs.PBS_IsCost = 0 THEN 1 ELSE 0 END) AS sell_cnt
+    FROM JobPaymentBasis pbs
+    WHERE pbs.PBS_JR = jr.jr_pk
+) pb
+OUTER APPLY (
+    SELECT COUNT(DISTINCT p.J6_JC) AS container_count
+    FROM JobPackLines jl
+    INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
+    WHERE jl.jl_js = jh.jh_parentid
+) ct
 WHERE jr.jr_jh IN @jhPks
     AND jr.jr_e6 IS NOT NULL
 ORDER BY js.js_uniqueconsignref, jr.jr_pk

@@ -86,7 +86,9 @@ WHERE jh.jh_parentid = @anchorPk
                     throw new Exception("chargeType must be AR or AP.");
 
                 // 按所选侧投影列名 + 过滤"该侧无效"行
-                var amountCol = isAr ? "jr.jr_localsellamt" : "jr.jr_localcostamt";
+                var amountCol = isAr
+                    ? "COALESCE(NULLIF(jr.jr_localsellamt, 0), jr.jr_ossellamt * COALESCE(NULLIF(jr.jr_ossellexrate, 0), 1))"
+                    : "COALESCE(NULLIF(jr.jr_localcostamt, 0), jr.jr_oscostamt * COALESCE(NULLIF(jr.jr_oscostexrate, 0), 1))";
                 var osAmountCol = isAr ? "jr.jr_ossellamt" : "jr.jr_oscostamt";
                 var currencyCol = isAr ? "jr.jr_rx_nksellcurrency" : "jr.jr_rx_nkcostcurrency";
                 var partyCol = isAr ? "jr.jr_oh_sellaccount" : "jr.jr_oh_costaccount";
@@ -96,9 +98,7 @@ WHERE jh.jh_parentid = @anchorPk
                 var vatCol = isAr ? "jr.jr_a9_sellvatclass" : "jr.jr_a9_costvatclass";
                 var lineCol = isAr ? "jr.jr_al_arline" : "jr.jr_al_apline";
 
-                var sideFilter = isAr
-                    ? "( jr.jr_localsellamt <> 0 OR jr.jr_al_arline IS NOT NULL OR jr.jr_oh_sellaccount IS NOT NULL )"
-                    : "( jr.jr_localcostamt <> 0 OR jr.jr_al_apline IS NOT NULL OR jr.jr_oh_costaccount IS NOT NULL )";
+                var sideFilter = BillingDataRules.SideAmountPredicate("jr", chargeType);
 
                 var orderBy = !string.IsNullOrWhiteSpace(sorting) &&
                               sorting.IndexOf("DESC", StringComparison.OrdinalIgnoreCase) >= 0
@@ -268,8 +268,8 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 
             var sql = $@"
 SELECT
-    ISNULL(SUM(jr.jr_localsellamt), 0) AS ar,
-    ISNULL(SUM(jr.jr_localcostamt), 0) AS ap
+    ISNULL(SUM(COALESCE(NULLIF(jr.jr_localsellamt, 0), jr.jr_ossellamt * COALESCE(NULLIF(jr.jr_ossellexrate, 0), 1))), 0) AS ar,
+    ISNULL(SUM(COALESCE(NULLIF(jr.jr_localcostamt, 0), jr.jr_oscostamt * COALESCE(NULLIF(jr.jr_oscostexrate, 0), 1))), 0) AS ap
 FROM JobCharge jr
 INNER JOIN JobHeader jh ON jh.jh_pk = jr.jr_jh
 INNER JOIN {scope.ParentTable} anchor ON anchor.{scope.ParentPkColumn} = jh.jh_parentid
@@ -503,7 +503,7 @@ ORDER BY CASE WHEN jr_isvalid = 1 THEN 0 ELSE 1 END, jr_pk", templateDp)
                     var ccy = c.currency;
                     var rate = c.exchange_rate ?? 0m;
                     var os = c.os_amount ?? 0m;
-                    var local = c.amount ?? 0m;
+                    var local = BillingDataRules.ResolveLocalAmount(c.amount, os, rate);
                     // gst/wht/vat：前端从各自数据源下拉选择后回传 pk(uniqueidentifier 外键)，直接存。
                     // 传空 / 非合法 GUID → 存 NULL(不报错)。
                     Guid? gst = Guid.TryParse(c.gst_rate, out var gstG) ? gstG : (Guid?)null;
@@ -645,7 +645,9 @@ WHERE jr_pk = @pk", p);
             if (!isAr && !isAp)
                 throw new Exception("chargeType must be AR or AP.");
 
-            var sideAmt = isAr ? "jr.jr_localsellamt" : "jr.jr_localcostamt";
+            var sideAmt = isAr
+                ? "COALESCE(NULLIF(jr.jr_localsellamt, 0), jr.jr_ossellamt * COALESCE(NULLIF(jr.jr_ossellexrate, 0), 1))"
+                : "COALESCE(NULLIF(jr.jr_localcostamt, 0), jr.jr_oscostamt * COALESCE(NULLIF(jr.jr_oscostexrate, 0), 1))";
             var sideOs = isAr ? "jr.jr_ossellamt" : "jr.jr_oscostamt";
             var sideCcy = isAr ? "jr.jr_rx_nksellcurrency" : "jr.jr_rx_nkcostcurrency";
             var sideParty = isAr ? "jr.jr_oh_sellaccount" : "jr.jr_oh_costaccount";

@@ -17,6 +17,8 @@ namespace SntBackend.Application.Shipment.Dto
 
         public List<ShipmentContainerOutput> containers_list { get; set; } = new();
         public List<JobPackLinesDtoOutput> loose_list { get; set; } = new();
+        /// <summary>合单关联列表（JobConShipLink → JobConsol）。</summary>
+        public List<ShipmentConsolidationOutput> consolidation_list { get; set; } = new();
         public JobDocumentDataDtoOutput doc_data { get; set; }
 
         /// <summary>
@@ -124,6 +126,15 @@ namespace SntBackend.Application.Shipment.Dto
 
         /// <summary>整箱毛重（按明细汇总）：SUM(jl_actualweight)。整箱申报毛重另见 jc_grossweight。</summary>
         public decimal? total_weight { get; set; }
+    }
+
+    public class ShipmentConsolidationOutput
+    {
+        public string id { get; set; }
+        public string reference { get; set; }
+        public string first_load { get; set; }
+        public string last_disc { get; set; }
+        public string master_bill { get; set; }
     }
 
     /// <summary>

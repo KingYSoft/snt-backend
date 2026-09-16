@@ -60,6 +60,22 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
         private static string TblBuildWhere(List<BillingTblFilterItem> filters, DynamicParameters dp)
         {
             var parts = new List<string>();
+            var fieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["creditor_debtor"] = "o.oh_code",
+                // 前端结算页面传递的是结算公司组织主键 ah_oh；兼容该字段，
+                // 避免筛选字段未识别时被静默忽略。
+                ["ah_oh"] = "t.ah_oh",
+                ["creditor_debtor_full_name"] = "o.oh_fullname",
+                ["job_number"] = "t.ah_jobnumber",
+                ["transaction_num"] = "t.ah_transactionnum",
+                ["ah_invoicedate"] = "t.ah_invoicedate",
+                ["ah_ledger"] = "t.ah_ledger",
+                ["ah_transactiontype"] = "t.ah_transactiontype",
+                ["ah_systemcreatebranch"] = "t.ah_systemcreatebranch",
+                ["ah_systemcreatedepartment"] = "t.ah_systemcreatedepartment",
+                ["ah_iscancelled"] = "t.ah_iscancelled"
+            };
 
             static string MapOp(string op) => op switch
             {
@@ -73,22 +89,68 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                 _ => "="
             };
 
-            foreach (var item in filters)
+            foreach (var item in filters ?? new List<BillingTblFilterItem>())
             {
                 if (string.IsNullOrWhiteSpace(item.key)) continue;
+
+                if (string.Equals(item.key, "job_invoice_number", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(item.val)) continue;
+
+                    var searchParam = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($@" AND (
+    t.ah_jobnumber LIKE {searchParam}
+    OR t.ah_transactionnum LIKE {searchParam}
+    OR t.ah_consolidatedinvoiceref LIKE {searchParam}
+    OR t.ah_chequeorreference LIKE {searchParam}
+    OR EXISTS (
+        SELECT 1
+        FROM JobHeader jh
+        LEFT JOIN JobShipment js ON js.js_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JS'
+        LEFT JOIN JobConsol jk ON jk.jk_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JK'
+        WHERE jh.jh_pk = t.ah_jh
+            AND (js.js_uniqueconsignref LIKE {searchParam} OR jk.jk_uniqueconsignref LIKE {searchParam})
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM AccTransactionLines al
+        INNER JOIN JobHeader lineJH ON lineJH.jh_pk = al.al_jh
+        LEFT JOIN JobShipment lineJS ON lineJS.js_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JS'
+        LEFT JOIN JobConsol lineJK ON lineJK.jk_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JK'
+        WHERE al.al_ah = t.ah_pk
+            AND (lineJS.js_uniqueconsignref LIKE {searchParam} OR lineJK.jk_uniqueconsignref LIKE {searchParam})
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM JobConsolCost e6
+        INNER JOIN JobConsol costJK ON costJK.jk_pk = e6.E6_ParentID
+        WHERE e6.E6_AH_APInvoice = t.ah_pk
+            AND e6.E6_ParentTableCode = 'JK'
+            AND costJK.jk_uniqueconsignref LIKE {searchParam}
+    )
+) ");
+                    dp.Add(searchParam, $"%{item.val.Trim()}%");
+                    continue;
+                }
+
+                if (!fieldMap.TryGetValue(item.key, out var field))
+                    continue;
 
                 if (item.op == "between")
                 {
                     if (!string.IsNullOrWhiteSpace(item.start))
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} >= {paramNameStart} ");
+                        parts.Add($" AND {field} >= {paramNameStart} ");
                         dp.Add(paramNameStart, item.start);
                     }
                     if (!string.IsNullOrWhiteSpace(item.end))
                     {
                         var paramNameEnd = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} <= {paramNameEnd}");
+                        var endExpression = string.Equals(item.key, "ah_invoicedate", StringComparison.OrdinalIgnoreCase)
+                            ? $"DATEADD(day, 1, {paramNameEnd})"
+                            : paramNameEnd;
+                        parts.Add($" AND {field} < {endExpression}");
                         dp.Add(paramNameEnd, item.end);
                     }
                 }
@@ -98,7 +160,7 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                     var val = item.val.Trim();
                     var paramName = $"@p{dp.ParameterNames.Count()}";
                     var isContain = item.op == "Contain" || item.op == "Not Contain";
-                    parts.Add($" AND t.{item.key} {MapOp(item.op)} {paramName}");
+                    parts.Add($" AND {field} {MapOp(item.op)} {paramName}");
                     dp.Add(paramName, isContain ? $"%{val}%" : val);
                 }
             }
@@ -126,6 +188,7 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
             var totalSql = @$"
 SELECT COUNT(*)
 FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE 1 = 1
     AND t.ah_ledger = @ledger
     AND t.ah_iscancelled = 0
@@ -154,6 +217,14 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             {
                 var total = await multi.ReadFirstAsync<int>();
                 var list = (await multi.ReadAsync<AccTransactionHeaderDtoOutput>()).ToList();
+
+                foreach (var item in list)
+                {
+                    item.payment_status = BillingDataRules.IsFullyPaid(
+                        item.ah_outstandingamount)
+                        ? "PAID"
+                        : "UNPAID";
+                }
 
                 output.TotalCount = total;
                 output.Items = list;
@@ -295,7 +366,29 @@ ORDER BY l.al_sequence
 
             if (!string.IsNullOrWhiteSpace(input.Query))
             {
-                whereIf += " AND (t.ah_jobnumber LIKE @query OR t.ah_transactionnum LIKE @query OR t.ah_desc LIKE @query) ";
+                whereIf += @" AND (
+                    t.ah_jobnumber LIKE @query
+                    OR t.ah_transactionnum LIKE @query
+                    OR t.ah_desc LIKE @query
+                    OR t.ah_consolidatedinvoiceref LIKE @query
+                    OR t.ah_chequeorreference LIKE @query
+                    OR EXISTS (
+                        SELECT 1
+                        FROM JobHeader jh
+                        LEFT JOIN JobShipment js ON js.js_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JS'
+                        LEFT JOIN JobConsol jk ON jk.jk_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JK'
+                        WHERE jh.jh_pk = t.ah_jh
+                            AND (js.js_uniqueconsignref LIKE @query OR jk.jk_uniqueconsignref LIKE @query)
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM JobConsolCost e6
+                        INNER JOIN JobConsol costJK ON costJK.jk_pk = e6.E6_ParentID
+                        WHERE e6.E6_AH_APInvoice = t.ah_pk
+                            AND e6.E6_ParentTableCode = 'JK'
+                            AND costJK.jk_uniqueconsignref LIKE @query
+                    )
+                ) ";
                 dp.Add("query", $"%{input.Query}%");
             }
 
@@ -744,7 +837,11 @@ ORDER BY b.ab_accountnum
                 var dp = new DynamicParameters();
                 dp.Add("pk", pk);
 
-                var sql = @"SELECT * FROM AccTransactionHeader WHERE ah_pk = @pk";
+                var sql = @"
+SELECT h.*, o.oh_fullname
+FROM AccTransactionHeader h
+LEFT JOIN OrgHeader o ON o.oh_pk = h.ah_oh
+WHERE h.ah_pk = @pk";
                 var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
 
                 if (header == null) return null;

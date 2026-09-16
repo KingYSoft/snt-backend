@@ -14,6 +14,9 @@ namespace SntBackend.Application.Po.Dto
         /// </summary>
         public string Draft { get; set; }
 
+        /// <summary>按未结余额和付清日期计算的付款状态。</summary>
+        public string payment_status { get; set; }
+
         /// <summary>
         /// 本合单分摊额：该合单下引用这张发票的 JobConsolCost 行的 E6_LocalCostAmount 之和。
         ///

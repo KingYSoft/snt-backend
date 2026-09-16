@@ -167,6 +167,18 @@ WHERE t.jdd_parentid = @id
 SELECT t.XV_Name, t.XV_Data
 FROM GenCustomAddOnValue t
 WHERE t.Xv_ParentID = @id;
+
+SELECT
+    c.jk_pk AS id,
+    c.jk_uniqueconsignref AS reference,
+    c.jk_rl_nkloadport AS first_load,
+    c.jk_rl_nkdischargeport AS last_disc,
+    c.jk_masterbillnum AS master_bill
+FROM JobConShipLink l
+INNER JOIN JobConsol c ON c.jk_pk = l.jn_jk
+WHERE l.jn_js = @id
+  AND c.jk_iscancelled = 0
+ORDER BY c.jk_pk;
 ";
 
             ShipmentDetailOutput detail;
@@ -175,6 +187,7 @@ WHERE t.Xv_ParentID = @id;
             List<JobPackLinesDtoOutput> packLines;
             JobDocumentDataDtoOutput docData;
             List<GenCustomAddOnValueDtoOutput> customValues;
+            List<ShipmentConsolidationOutput> consolidations;
 
             using (var multi = await _appSqlServerRepository.QueryMultipleAsync(sql, dp))
             {
@@ -186,6 +199,7 @@ WHERE t.Xv_ParentID = @id;
                 packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
                 docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
                 customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
+                consolidations = (await multi.ReadAsync<ShipmentConsolidationOutput>()).ToList();
             }
 
             // 地址映射 - shipper 和 consignee 需要关联 OrgAddress
@@ -220,6 +234,7 @@ WHERE t.Xv_ParentID = @id;
 
             detail.doc_data = docData;
             detail.custom_values = customValues;
+            detail.consolidation_list = consolidations;
             FillCustomFields(detail);
 
             return detail;
@@ -295,9 +310,10 @@ SELECT jl.*, jc.*,
     agg.pack_type,
     agg.total_volume,
     agg.total_weight
-FROM JobPackLines jl
-INNER JOIN JobContainerPackPivot p ON p.J6_JL = jl.jl_pk
-INNER JOIN JobContainer jc ON jc.jc_pk = p.J6_JC
+FROM JobContainer jc
+LEFT JOIN JobConShipLink csl ON csl.jn_jk = jc.jc_jk AND csl.jn_js = @id
+LEFT JOIN JobContainerPackPivot p ON p.J6_JC = jc.jc_pk
+LEFT JOIN JobPackLines jl ON jl.jl_pk = p.J6_JL AND jl.jl_js = @id
 LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
 -- 箱级汇总：本行只带该箱其中一条明细，整箱件数/体积/毛重要把该箱所有明细加起来
 OUTER APPLY (
@@ -309,7 +325,9 @@ OUTER APPLY (
     INNER JOIN JobPackLines jl2 ON jl2.jl_pk = p2.J6_JL
     WHERE p2.J6_JC = jc.jc_pk
 ) agg
-WHERE jl.jl_js = @id;
+WHERE jl.jl_js = @id
+    OR jc.jc_js_fclbookingonlylink = @id
+    OR csl.jn_js = @id;
 ", dp);
 
             // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container

@@ -29,6 +29,41 @@ namespace SntBackend.Application.Consolidation
             return $"t.{key}";
         }
 
+        /// <summary>
+        /// 使用现有的 jk_consolchargeable 字段承载展示兜底值，避免为查询结果
+        /// 增加新的 DTO 字段。仅对主表值为 0 的合单按关联运单汇总。
+        /// </summary>
+        private async Task FillChargeableFallbackAsync(List<JobConsolDtoOutput> items)
+        {
+            var pending = items
+                .Where(x => x.jk_consolchargeable == 0 && !string.IsNullOrWhiteSpace(x.jk_pk))
+                .Select(x => x.jk_pk)
+                .Distinct()
+                .ToArray();
+            if (pending.Length == 0)
+                return;
+
+            var rows = await _appSqlServerRepository.QueryAsync<ChargeableFallbackRow>(@"
+SELECT l.jn_jk AS jk_pk, ISNULL(SUM(s.js_actualchargeable), 0) AS chargeable
+FROM JobConShipLink l
+INNER JOIN JobShipment s ON s.js_pk = l.jn_js
+WHERE l.jn_jk IN @jkPks
+GROUP BY l.jn_jk", new { jkPks = pending });
+
+            var values = rows.ToDictionary(x => x.jk_pk, x => x.chargeable, StringComparer.OrdinalIgnoreCase);
+            foreach (var item in items)
+            {
+                if (item.jk_consolchargeable == 0 && values.TryGetValue(item.jk_pk, out var chargeable))
+                    item.jk_consolchargeable = chargeable;
+            }
+        }
+
+        private sealed class ChargeableFallbackRow
+        {
+            public string jk_pk { get; set; }
+            public decimal chargeable { get; set; }
+        }
+
         private static string TblBuildWhere(List<ConsolidationTblFilterItem> filters, DynamicParameters dp, out bool joinShipment)
         {
             var parts = new List<string>();
@@ -132,6 +167,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             {
                 var total = await multi.ReadFirstAsync<int>();
                 var list = (await multi.ReadAsync<JobConsolDtoOutput>()).ToList();
+                await FillChargeableFallbackAsync(list);
 
                 output.TotalCount = total;
                 output.Items = list;
@@ -160,6 +196,7 @@ WHERE 1 = 1
 ORDER BY t.jk_pk desc
 ";
             var list = (await _appSqlServerRepository.QueryAsync<JobConsolDtoOutput>(sql, dp)).ToList();
+            await FillChargeableFallbackAsync(list);
 
             var props = typeof(JobConsolDtoOutput).GetProperties(BindingFlags.Public | BindingFlags.Instance);
             var sb = new StringBuilder();
@@ -352,6 +389,8 @@ WHERE t.jc_jk = @id
                     if (!multi.IsConsumed)
                         detail.containers = (await multi.ReadAsync<ConsolidationContainerOutput>()).ToList();
 
+                    // 多结果集全部读取完毕后再查询汇总，避免同一连接上出现并行 DataReader。
+                    await FillChargeableFallbackAsync(new List<JobConsolDtoOutput> { detail });
                     FillShipmentCarrierFallback(detail);
 
                     return detail;

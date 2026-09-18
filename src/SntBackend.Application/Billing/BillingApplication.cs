@@ -52,10 +52,58 @@ INSERT INTO AccTransactionMatchLink (
     ap_ah, ap_reason, ap_systemcreateuser, ap_systemlastedittimeutc, ap_systemlastedituser,
     ap_systemcreatetimeutc, ap_osamount
 )
-SELECT NEWID(), @invAmount,     0, @matchGroup, 0, @matchDate, @invPk,     '', @user, @nowUtc, @user, @nowUtc, 0
+SELECT NEWID(), @invAmount,     0, @matchGroup, 0, @matchDate, @invPk,     '', @user, @nowUtc, @user, @nowUtc, @invOsAmount
 UNION ALL
-SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @user, @nowUtc, @user, @nowUtc, 0
+SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @user, @nowUtc, @user, @nowUtc, @counterOsAmount
 ";
+
+        /// <summary>
+        /// 前端当前传递的 bankAccountId 是银行编码，历史调用也可能传 BankPK。
+        /// 统一解析成 AccBankAccount.ab_pk，写入 AccTransactionHeader.ah_ab。
+        /// </summary>
+        private async Task<string> ResolveBankPkAsync(string bankId)
+        {
+            var value = (bankId ?? string.Empty).Trim();
+            if (value.Length == 0) return null;
+
+            var byCode = await _appSqlServerRepository.QueryFirstOrDefaultAsync<dynamic>(
+                "SELECT TOP 1 ab_pk FROM AccBankAccount WHERE ab_code = @value",
+                new DynamicParameters(new { value }));
+            if (byCode?.ab_pk != null)
+                return Convert.ToString(byCode.ab_pk);
+
+            if (Guid.TryParse(value, out _))
+            {
+                var byPk = await _appSqlServerRepository.QueryFirstOrDefaultAsync<dynamic>(
+                    "SELECT TOP 1 ab_pk FROM AccBankAccount WHERE ab_pk = @value",
+                    new DynamicParameters(new { value }));
+                if (byPk?.ab_pk != null)
+                    return Convert.ToString(byPk.ab_pk);
+            }
+
+            throw new Exception($"Bank account '{value}' was not found.");
+        }
+
+        private static DateTime NormalizeSettlementDate(DateTime value)
+        {
+            if (value.Kind == DateTimeKind.Utc)
+            {
+                try
+                {
+                    return TimeZoneInfo.ConvertTimeBySystemTimeZoneId(value, "China Standard Time").Date;
+                }
+                catch (TimeZoneNotFoundException)
+                {
+                    return value.ToLocalTime().Date;
+                }
+                catch (InvalidTimeZoneException)
+                {
+                    return value.ToLocalTime().Date;
+                }
+            }
+
+            return value.Date;
+        }
 
         private static string TblBuildWhere(List<BillingTblFilterItem> filters, DynamicParameters dp)
         {
@@ -496,6 +544,10 @@ ORDER BY al_ah, al_sequence
             if (!input.SettleDate.HasValue)
                 throw new Exception("SettleDate is required.");
 
+            var settleDate = NormalizeSettlementDate(input.SettleDate.Value);
+            var bankPk = await ResolveBankPkAsync(
+                string.IsNullOrWhiteSpace(input.BankPK) ? input.BankAccountId : input.BankPK);
+
             var matchNumber = string.IsNullOrWhiteSpace(input.MatchNumber)
                 ? $"MCH-{DateTime.Now:yyyyMMddHHmmssfff}"
                 : input.MatchNumber;
@@ -564,6 +616,7 @@ WHERE t.ah_pk = @pk
                     ? $"Match Write Off - {((object)invoice.ah_transactionnum)?.ToString()}"
                     : input.Description;
                 var amount = isReceipt ? writeOffHome : -writeOffHome;
+                var amountOriginal = isReceipt ? writeOffOriginal : -writeOffOriginal;
 
                 var insertHeaderSql = @"
 INSERT INTO AccTransactionHeader (
@@ -601,9 +654,9 @@ INSERT INTO AccTransactionHeader (
 )
 SELECT
     @newPk, t.ah_ledger, @transType, t.ah_compliancesubtype, @matchNumber,
-    t.ah_transactioncount, t.ah_transactionreference, @desc,
+    t.ah_transactioncount, @refNo, @desc,
     @settleDate, @settleDate, @amount, 0, 0,
-    0, t.ah_rx_nktransactioncurrency, t.ah_exchangerate,
+    @amountOriginal, t.ah_rx_nktransactioncurrency, t.ah_exchangerate,
     t.ah_ageperiod, t.ah_postperiod, @settleDate,
     t.ah_transactioncategory, @chequeNo, t.ah_receipttype,
     t.ah_cashbasisgstindicator, t.ah_cashbasisgstrealisedtogl,
@@ -639,10 +692,12 @@ WHERE t.ah_pk = @origPk
                 headerDp.Add("transType", transactionType);
                 headerDp.Add("matchNumber", matchNumber);
                 headerDp.Add("desc", description);
-                headerDp.Add("settleDate", input.SettleDate.Value);
+                headerDp.Add("settleDate", settleDate);
                 headerDp.Add("amount", amount);
+                headerDp.Add("amountOriginal", amountOriginal);
+                headerDp.Add("refNo", input.RefNo ?? string.Empty);
                 headerDp.Add("chequeNo", input.ChequeNo ?? string.Empty);
-                headerDp.Add("bankPk", string.IsNullOrWhiteSpace(input.BankPK) ? null : input.BankPK);
+                headerDp.Add("bankPk", bankPk);
                 headerDp.Add("now", DateTime.UtcNow);
                 headerDp.Add("origPk", line.TthPk);
 
@@ -658,6 +713,7 @@ WHERE t.ah_pk = @origPk
 UPDATE AccTransactionHeader
 SET ah_outstandingamount = @newOutstanding,
     ah_ostotal = @newOsTotal,
+    ah_osoutstandingamount = @newOsOutstanding,
     ah_fullypaiddate = CASE WHEN @isFullyPaid = 1 THEN @settleDate ELSE ah_fullypaiddate END,
     ah_systemlastedittimeutc = @now
 WHERE ah_pk = @pk
@@ -665,8 +721,9 @@ WHERE ah_pk = @pk
                 var updDp = new DynamicParameters();
                 updDp.Add("newOutstanding", isFullyPaid ? 0m : newOutstanding);
                 updDp.Add("newOsTotal", isFullyPaid ? 0m : newOsTotal);
+                updDp.Add("newOsOutstanding", isFullyPaid ? 0m : newOsTotal);
                 updDp.Add("isFullyPaid", isFullyPaid ? 1 : 0);
-                updDp.Add("settleDate", input.SettleDate.Value);
+                updDp.Add("settleDate", settleDate);
                 updDp.Add("now", DateTime.UtcNow);
                 updDp.Add("pk", line.TthPk);
 
@@ -679,11 +736,13 @@ WHERE ah_pk = @pk
                 var invoiceLegAmount = isReceipt ? writeOffHome : -writeOffHome;
                 var linkDp = new DynamicParameters();
                 linkDp.Add("matchGroup", matchGroupNum);
-                linkDp.Add("matchDate", input.SettleDate.Value);
+                linkDp.Add("matchDate", settleDate);
                 linkDp.Add("invPk", line.TthPk);
                 linkDp.Add("counterPk", newPk);
                 linkDp.Add("invAmount", invoiceLegAmount);
                 linkDp.Add("counterAmount", -invoiceLegAmount);
+                linkDp.Add("invOsAmount", isReceipt ? writeOffOriginal : -writeOffOriginal);
+                linkDp.Add("counterOsAmount", isReceipt ? -writeOffOriginal : writeOffOriginal);
                 linkDp.Add("nowUtc", DateTime.UtcNow);
                 linkDp.Add("user", MatchLinkUser);
                 await _appSqlServerRepository.ExecuteAsync(InsertMatchLinkPairSql, linkDp);
@@ -692,6 +751,9 @@ WHERE ah_pk = @pk
                 totalWriteOffOriginal += writeOffOriginal;
                 totalWriteOffHome += writeOffHome;
             }
+
+            if (affectedCount == 0)
+                throw new Exception("No eligible outstanding invoice was found for the selected lines.");
 
             return new SaveMatchWriteOffOutput
             {
@@ -774,7 +836,7 @@ SELECT
     t.ah_oh AS BillingParty,
     o.oh_fullname AS BillingPartyName,
     t.ah_rx_nktransactioncurrency AS Currency,
-    t.ah_invoiceamount AS SettledAmount,
+    t.ah_localtotal AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
     t.ah_desc AS Description
 FROM AccTransactionHeader t
@@ -858,6 +920,21 @@ WHERE h.ah_pk = @pk";
 
                 MatchTransactionDetailOutput detail = new MatchTransactionDetailOutput { Header = header };
 
+                // 详情需要展示真正被核销的发票，而不是用 REC/PAY 结算头伪造一行。
+                // 一个结算头可能对应多个发票，因此这里返回整个匹配组。
+                var matchLinksSql = @"
+SELECT m.*
+FROM AccTransactionMatchLink m
+WHERE m.ap_matchgroupnum IN (
+    SELECT DISTINCT x.ap_matchgroupnum
+    FROM AccTransactionMatchLink x
+    WHERE x.ap_ah = @pk
+)
+ORDER BY m.ap_matchdate, m.ap_pk";
+                var matchLinks = (await _appSqlServerRepository.QueryAsync<AccTransactionMatchLinkDtoOutput>(
+                    matchLinksSql, new DynamicParameters(new { pk }))).ToList();
+                detail.MatchLinks = matchLinks;
+
                 if (!string.IsNullOrWhiteSpace(header.ah_ab))
                 {
                     var bankDp = new DynamicParameters();
@@ -870,10 +947,77 @@ WHERE h.ah_pk = @pk";
                     }
                 }
 
-                var h = detail.Header;
-                detail.Lines = new List<OutstandingInvoiceItem>
+                var linkedInvoicePks = matchLinks
+                    .Where(x => !string.Equals(x.ap_ah, header.ah_pk, StringComparison.OrdinalIgnoreCase))
+                    .Select(x => x.ap_ah)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                foreach (var invoicePk in linkedInvoicePks)
                 {
-                    new OutstandingInvoiceItem
+                    var invoice = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(
+                        @"SELECT h.*, o.oh_fullname
+                          FROM AccTransactionHeader h
+                          LEFT JOIN OrgHeader o ON o.oh_pk = h.ah_oh
+                          WHERE h.ah_pk = @invoicePk",
+                        new DynamicParameters(new { invoicePk }));
+                    if (invoice == null) continue;
+
+                    // 部分历史账单未把 Job No. 冗余写入 AccTransactionHeader.ah_jobnumber，
+                    // 但仍通过 ah_jh 关联到 JobHeader。详情页应使用关联作业号作为回退值。
+                    var jobNumber = invoice.ah_jobnumber;
+                    if (string.IsNullOrWhiteSpace(jobNumber) && !string.IsNullOrWhiteSpace(invoice.ah_jh))
+                    {
+                        jobNumber = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(
+                            @"SELECT jh_jobnum
+                              FROM JobHeader
+                              WHERE jh_pk = @jobHeaderPk",
+                            new DynamicParameters(new { jobHeaderPk = invoice.ah_jh }));
+                    }
+
+                    var chargeRows = (await _appSqlServerRepository.QueryAsync<string>(
+                        @"SELECT al_desc
+                          FROM AccTransactionLines
+                          WHERE al_ah = @invoicePk
+                            AND NULLIF(al_desc, '') IS NOT NULL
+                          ORDER BY al_sequence",
+                        new DynamicParameters(new { invoicePk }))).ToList();
+                    var chargeDesc = string.Join("; ", chargeRows.Where(x => !string.IsNullOrWhiteSpace(x)));
+
+                    var link = matchLinks.FirstOrDefault(x =>
+                        string.Equals(x.ap_ah, invoicePk, StringComparison.OrdinalIgnoreCase));
+                    if (link == null) continue;
+
+                    var rate = invoice.ah_exchangerate == 0 ? 1 : invoice.ah_exchangerate;
+                    var appliedHome = Math.Abs(link.ap_amount);
+                    var appliedOriginal = Math.Abs(link.ap_osamount) > 0.000001m
+                        ? Math.Abs(link.ap_osamount)
+                        : appliedHome / rate;
+
+                    detail.Lines.Add(new OutstandingInvoiceItem
+                    {
+                        Id = invoice.ah_pk,
+                        TthPk = invoice.ah_pk,
+                        Ledger = invoice.ah_ledger,
+                        JobNo = jobNumber,
+                        TaxInvoiceNo = invoice.ah_transactionnum,
+                        InvoiceNumber = invoice.ah_transactionnum,
+                        BillingDate = invoice.ah_invoicedate,
+                        ChargeDesc = chargeDesc,
+                        Outstanding = invoice.ah_outstandingamount,
+                        SettlementAmountOriginal = appliedOriginal,
+                        ExRate = rate,
+                        SettlementAmountHome = appliedHome,
+                        Currency = invoice.ah_rx_nktransactioncurrency
+                    });
+                }
+
+                // 兼容历史上没有匹配链接的旧记录，避免详情接口完全无数据。
+                if (detail.Lines.Count == 0)
+                {
+                    var h = detail.Header;
+                    detail.Lines.Add(new OutstandingInvoiceItem
                     {
                         Id = h.ah_pk,
                         TthPk = h.ah_pk,
@@ -886,10 +1030,10 @@ WHERE h.ah_pk = @pk";
                         Outstanding = h.ah_outstandingamount,
                         SettlementAmountOriginal = h.ah_ostotal,
                         ExRate = h.ah_exchangerate,
-                        SettlementAmountHome = h.ah_invoiceamount,
+                        SettlementAmountHome = h.ah_localtotal,
                         Currency = h.ah_rx_nktransactioncurrency
-                    }
-                };
+                    });
+                }
 
                 return detail;
             }

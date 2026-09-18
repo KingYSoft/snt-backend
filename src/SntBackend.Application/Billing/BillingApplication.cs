@@ -736,7 +736,11 @@ WHERE ah_pk = @pk
 
             if (!string.IsNullOrWhiteSpace(input.JobNumber))
             {
-                whereIf += " AND t.ah_jobnumber LIKE @jobNumber ";
+                whereIf += @" AND (
+                    t.ah_jobnumber LIKE @jobNumber
+                    OR t.ah_transactionnum LIKE @jobNumber
+                    OR t.ah_originaltransactionnum LIKE @jobNumber
+                ) ";
                 dp.Add("jobNumber", $"%{input.JobNumber}%");
             }
 

@@ -1116,7 +1116,7 @@ ORDER BY c.rx_code
             return (await _appSqlServerRepository.QueryAsync<CurrencyOptionOutput>(sql, dp)).ToList();
         }
 
-        public async Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query)
+        public async Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query, string companyPk = null)
         {
             var dp = new DynamicParameters();
             var whereIf = "";
@@ -1125,6 +1125,12 @@ ORDER BY c.rx_code
             {
                 whereIf += " AND (c.ac_code LIKE @kw OR c.ac_desc LIKE @kw) ";
                 dp.Add("kw", $"%{query.Trim()}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(companyPk))
+            {
+                whereIf += " AND c.ac_gc = @companyPk ";
+                dp.Add("companyPk", companyPk.Trim());
             }
 
             var sql = $@"

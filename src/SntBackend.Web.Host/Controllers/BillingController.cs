@@ -81,9 +81,11 @@ public class BillingController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("charge-code-options")]
-    public async Task<JsonResponse<List<ChargeCodeOptionOutput>>> ChargeCodeOptions([FromQuery] string query)
+    public async Task<JsonResponse<List<ChargeCodeOptionOutput>>> ChargeCodeOptions(
+        [FromQuery] string query,
+        [FromQuery] string companyPk = null)
     {
-        var result = await _billingApplication.ChargeCodeOptions(query);
+        var result = await _billingApplication.ChargeCodeOptions(query, companyPk);
         return new JsonResponse<List<ChargeCodeOptionOutput>> { Data = result };
     }
 

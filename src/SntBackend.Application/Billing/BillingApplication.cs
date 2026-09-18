@@ -726,7 +726,13 @@ WHERE ah_pk = @pk
         {
             var output = new MatchTransactionPageOutput();
             var dp = new DynamicParameters();
-            var whereIf = "";
+            // 结算匹配列表只展示已经产生核销关联的交易，避免未结算发票直接出现在列表中。
+            var whereIf = @"
+                AND EXISTS (
+                    SELECT 1
+                    FROM AccTransactionMatchLink m
+                    WHERE m.ap_ah = t.ah_pk
+                ) ";
 
             if (!string.IsNullOrWhiteSpace(input.Shipper))
             {

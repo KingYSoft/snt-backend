@@ -155,7 +155,11 @@ WHERE jda.e2_parentid = @id
     AND jda.e2_parenttablecode = 'JS'
     AND jda.e2_addresstype IN ('CRD', 'CEG');
 
-SELECT t.*
+SELECT t.*,
+    t.jl_actualvolume AS pac_actual_volume,
+    t.jl_packagecount AS pac_package_count,
+    t.jl_rh_nkcommoditycode AS pac_commodity,
+    COALESCE(NULLIF(t.jl_description, ''), t.jl_detaileddescription) AS pac_description
 FROM JobPackLines t
 WHERE t.jl_js = @id;
 
@@ -184,7 +188,7 @@ ORDER BY c.jk_pk;
             ShipmentDetailOutput detail;
             List<JobDocAddressDtoOutput> addrs;
             List<OrgAddressWithHeaderDtoOutput> orgAddrs;
-            List<JobPackLinesDtoOutput> packLines;
+            List<ShipmentPackLineOutput> packLines;
             JobDocumentDataDtoOutput docData;
             List<GenCustomAddOnValueDtoOutput> customValues;
             List<ShipmentConsolidationOutput> consolidations;
@@ -196,7 +200,7 @@ ORDER BY c.jk_pk;
 
                 addrs = (await multi.ReadAsync<JobDocAddressDtoOutput>()).ToList();
                 orgAddrs = (await multi.ReadAsync<OrgAddressWithHeaderDtoOutput>()).ToList();
-                packLines = (await multi.ReadAsync<JobPackLinesDtoOutput>()).ToList();
+                packLines = (await multi.ReadAsync<ShipmentPackLineOutput>()).ToList();
                 docData = await multi.ReadFirstOrDefaultAsync<JobDocumentDataDtoOutput>();
                 customValues = (await multi.ReadAsync<GenCustomAddOnValueDtoOutput>()).ToList();
                 consolidations = (await multi.ReadAsync<ShipmentConsolidationOutput>()).ToList();
@@ -302,7 +306,12 @@ ORDER BY c.jk_pk;
             dp.Add("id", id, DbType.AnsiString);
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(@"
-SELECT jl.*, jc.*,
+SELECT jl.*,
+    agg.total_volume AS pac_actual_volume,
+    agg.pack_count AS pac_package_count,
+    jl.jl_rh_nkcommoditycode AS pac_commodity,
+    COALESCE(NULLIF(jl.jl_description, ''), jl.jl_detaileddescription) AS pac_description,
+    jc.*,
     -- RC_Code 是定长 char，不 RTRIM 会带出 '40HC      ' 这种尾随空格
     RTRIM(rc.RC_Code) AS container_type_code,
     rc.RC_Description AS container_type_desc,

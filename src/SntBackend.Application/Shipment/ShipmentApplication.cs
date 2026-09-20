@@ -311,9 +311,14 @@ SELECT jl.*, jc.*,
     agg.total_volume,
     agg.total_weight
 FROM JobContainer jc
-LEFT JOIN JobConShipLink csl ON csl.jn_jk = jc.jc_jk AND csl.jn_js = @id
-LEFT JOIN JobContainerPackPivot p ON p.J6_JC = jc.jc_pk
-LEFT JOIN JobPackLines jl ON jl.jl_pk = p.J6_JL AND jl.jl_js = @id
+OUTER APPLY (
+    SELECT TOP 1 jl.*
+    FROM JobContainerPackPivot p
+    INNER JOIN JobPackLines jl ON jl.jl_pk = p.J6_JL
+    WHERE p.J6_JC = jc.jc_pk
+      AND jl.jl_js = @id
+    ORDER BY p.J6_JL
+) jl
 LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
 -- 箱级汇总：本行只带该箱其中一条明细，整箱件数/体积/毛重要把该箱所有明细加起来
 OUTER APPLY (
@@ -324,10 +329,22 @@ OUTER APPLY (
     FROM JobContainerPackPivot p2
     INNER JOIN JobPackLines jl2 ON jl2.jl_pk = p2.J6_JL
     WHERE p2.J6_JC = jc.jc_pk
+      AND jl2.jl_js = @id
 ) agg
-WHERE jl.jl_js = @id
-    OR jc.jc_js_fclbookingonlylink = @id
-    OR csl.jn_js = @id;
+WHERE jc.jc_js_fclbookingonlylink = @id
+    OR EXISTS (
+        SELECT 1
+        FROM JobContainerPackPivot p3
+        INNER JOIN JobPackLines jl3 ON jl3.jl_pk = p3.J6_JL
+        WHERE p3.J6_JC = jc.jc_pk
+          AND jl3.jl_js = @id
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM JobConShipLink csl
+        WHERE csl.jn_jk = jc.jc_jk
+          AND csl.jn_js = @id
+    );
 ", dp);
 
             // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container

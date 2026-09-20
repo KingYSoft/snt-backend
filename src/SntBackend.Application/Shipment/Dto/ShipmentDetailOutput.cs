@@ -16,7 +16,7 @@ namespace SntBackend.Application.Shipment.Dto
         public JobDocAddressDtoOutput delivery { get; set; }
 
         public List<ShipmentContainerOutput> containers_list { get; set; } = new();
-        public List<JobPackLinesDtoOutput> loose_list { get; set; } = new();
+        public List<ShipmentPackLineOutput> loose_list { get; set; } = new();
         /// <summary>合单关联列表（JobConShipLink → JobConsol）。</summary>
         public List<ShipmentConsolidationOutput> consolidation_list { get; set; } = new();
         public JobDocumentDataDtoOutput doc_data { get; set; }
@@ -98,7 +98,28 @@ namespace SntBackend.Application.Shipment.Dto
     /// </summary>
     public class ShipmentContainerOutput : JobPackLinesDtoOutput
     {
+        /// <summary>箱级体积（CBM）。</summary>
+        public decimal? pac_actual_volume { get; set; }
+
+        /// <summary>箱级包装件数。</summary>
+        public int? pac_package_count { get; set; }
+
+        /// <summary>货物商品编码。</summary>
+        public string pac_commodity { get; set; }
+
+        /// <summary>货物描述。</summary>
+        public string pac_description { get; set; }
+
         public ShipmentContainerInfoOutput container { get; set; }
+    }
+
+    /// <summary>非 FCL 货物明细。</summary>
+    public class ShipmentPackLineOutput : JobPackLinesDtoOutput
+    {
+        public decimal? pac_actual_volume { get; set; }
+        public int? pac_package_count { get; set; }
+        public string pac_commodity { get; set; }
+        public string pac_description { get; set; }
     }
 
     /// <summary>

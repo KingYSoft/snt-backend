@@ -145,38 +145,88 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                 {
                     if (string.IsNullOrWhiteSpace(item.val)) continue;
 
+                    var invoiceSearchParam = $"@p{dp.ParameterNames.Count()}";
+                    var invoiceCandidateSql = $@"
+    SELECT t0.ah_pk
+    FROM AccTransactionHeader t0
+    WHERE t0.ah_ledger = @ledger
+        AND (t0.ah_consolidatedinvoiceref LIKE {invoiceSearchParam}
+            OR t0.ah_chequeorreference LIKE {invoiceSearchParam}
+            OR t0.ah_jobnumber LIKE {invoiceSearchParam})
+    UNION
+    SELECT t1.ah_pk
+    FROM AccTransactionHeader t1
+    INNER JOIN JobHeader jh ON jh.jh_pk = t1.ah_jh
+    LEFT JOIN JobShipment js ON js.js_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN JobConsol jk ON jk.jk_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JK'
+    WHERE t1.ah_ledger = @ledger
+        AND (jh.jh_jobnum LIKE {invoiceSearchParam}
+            OR js.js_uniqueconsignref LIKE {invoiceSearchParam}
+            OR jk.jk_uniqueconsignref LIKE {invoiceSearchParam})
+    UNION
+    SELECT al.al_ah
+    FROM AccTransactionLines al
+    INNER JOIN AccTransactionHeader t2 ON t2.ah_pk = al.al_ah
+    INNER JOIN JobHeader lineJH ON lineJH.jh_pk = al.al_jh
+    LEFT JOIN JobShipment lineJS ON lineJS.js_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JS'
+    LEFT JOIN JobConsol lineJK ON lineJK.jk_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JK'
+    WHERE t2.ah_ledger = @ledger
+        AND (lineJH.jh_jobnum LIKE {invoiceSearchParam}
+            OR lineJS.js_uniqueconsignref LIKE {invoiceSearchParam}
+            OR lineJK.jk_uniqueconsignref LIKE {invoiceSearchParam})";
+                    parts.Add($" AND t.ah_pk IN ({invoiceCandidateSql}) ");
+                    dp.Add(invoiceSearchParam, $"%{item.val.Trim()}%");
+                    continue;
+                }
+
+                if (string.Equals(item.key, "job_number", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(item.val)) continue;
+
                     var searchParam = $"@p{dp.ParameterNames.Count()}";
-                    parts.Add($@" AND (
-    t.ah_jobnumber LIKE {searchParam}
-    OR t.ah_transactionnum LIKE {searchParam}
-    OR t.ah_consolidatedinvoiceref LIKE {searchParam}
-    OR t.ah_chequeorreference LIKE {searchParam}
-    OR EXISTS (
-        SELECT 1
-        FROM JobHeader jh
-        LEFT JOIN JobShipment js ON js.js_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JS'
-        LEFT JOIN JobConsol jk ON jk.jk_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JK'
-        WHERE jh.jh_pk = t.ah_jh
-            AND (js.js_uniqueconsignref LIKE {searchParam} OR jk.jk_uniqueconsignref LIKE {searchParam})
-    )
-    OR EXISTS (
-        SELECT 1
-        FROM AccTransactionLines al
-        INNER JOIN JobHeader lineJH ON lineJH.jh_pk = al.al_jh
-        LEFT JOIN JobShipment lineJS ON lineJS.js_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JS'
-        LEFT JOIN JobConsol lineJK ON lineJK.jk_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JK'
-        WHERE al.al_ah = t.ah_pk
-            AND (lineJS.js_uniqueconsignref LIKE {searchParam} OR lineJK.jk_uniqueconsignref LIKE {searchParam})
-    )
-    OR EXISTS (
-        SELECT 1
-        FROM JobConsolCost e6
-        INNER JOIN JobConsol costJK ON costJK.jk_pk = e6.E6_ParentID
-        WHERE e6.E6_AH_APInvoice = t.ah_pk
-            AND e6.E6_ParentTableCode = 'JK'
-            AND costJK.jk_uniqueconsignref LIKE {searchParam}
-    )
-) ");
+                    var isJobNumber = string.Equals(item.key, "job_number", StringComparison.OrdinalIgnoreCase);
+                    var directFields = isJobNumber
+                        ? $"t0.ah_jobnumber LIKE {searchParam}"
+                        : $@"t0.ah_consolidatedinvoiceref LIKE {searchParam}
+    OR t0.ah_chequeorreference LIKE {searchParam}";
+                    var jobHeaderFields = isJobNumber
+                        ? $@"jh.jh_jobnum LIKE {searchParam}
+            OR js.js_uniqueconsignref LIKE {searchParam}
+            OR jk.jk_uniqueconsignref LIKE {searchParam}"
+                        : $@"CONVERT(varchar(50), jh.jh_uniquejobinvoicenumber) LIKE {searchParam}
+            OR jh.jh_arinvoicereference LIKE {searchParam}
+            OR jh.jh_joblocalreference LIKE {searchParam}";
+                    var lineJobHeaderFields = isJobNumber
+                        ? $@"lineJH.jh_jobnum LIKE {searchParam}
+            OR lineJS.js_uniqueconsignref LIKE {searchParam}
+            OR lineJK.jk_uniqueconsignref LIKE {searchParam}"
+                        : $@"CONVERT(varchar(50), lineJH.jh_uniquejobinvoicenumber) LIKE {searchParam}
+            OR lineJH.jh_arinvoicereference LIKE {searchParam}
+            OR lineJH.jh_joblocalreference LIKE {searchParam}";
+                    var candidateSql = $@"
+    SELECT t0.ah_pk
+    FROM AccTransactionHeader t0
+    WHERE t0.ah_ledger = @ledger
+        AND ({directFields})
+    UNION
+    SELECT t1.ah_pk
+    FROM AccTransactionHeader t1
+    INNER JOIN JobHeader jh ON jh.jh_pk = t1.ah_jh
+    LEFT JOIN JobShipment js ON js.js_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN JobConsol jk ON jk.jk_pk = jh.jh_parentid AND jh.jh_parenttablecode = 'JK'
+    WHERE t1.ah_ledger = @ledger
+        AND ({jobHeaderFields})
+    UNION
+    SELECT al.al_ah
+    FROM AccTransactionLines al
+    INNER JOIN AccTransactionHeader t2 ON t2.ah_pk = al.al_ah
+    INNER JOIN JobHeader lineJH ON lineJH.jh_pk = al.al_jh
+    LEFT JOIN JobShipment lineJS ON lineJS.js_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JS'
+    LEFT JOIN JobConsol lineJK ON lineJK.jk_pk = lineJH.jh_parentid AND lineJH.jh_parenttablecode = 'JK'
+    WHERE t2.ah_ledger = @ledger
+        AND ({lineJobHeaderFields})";
+
+                    parts.Add($" AND t.ah_pk IN ({candidateSql}) ");
                     dp.Add(searchParam, $"%{item.val.Trim()}%");
                     continue;
                 }
@@ -239,8 +289,8 @@ FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE 1 = 1
     AND t.ah_ledger = @ledger
-    AND t.ah_iscancelled = 0
     {whereIf}
+OPTION (RECOMPILE)
 ";
             var pageSql = @$"
 SELECT t.*, o.oh_fullname,
@@ -250,10 +300,10 @@ LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 {AccTransactionHeaderSql.DisplayJoins("t")}
 WHERE 1 = 1
     AND t.ah_ledger = @ledger
-    AND t.ah_iscancelled = 0
     {whereIf}
 ORDER BY t.ah_invoicedate desc, t.ah_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+OPTION (RECOMPILE)
 ";
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);

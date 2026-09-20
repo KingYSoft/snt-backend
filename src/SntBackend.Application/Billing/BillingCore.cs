@@ -237,8 +237,10 @@ FROM AccTransactionHeader ah
 ";
             var pageSql = $@"
 SELECT ah.*,
+       o.oh_fullname AS oh_fullname,
 {AccTransactionHeaderSql.DisplayColumns("ah")}
 FROM AccTransactionHeader ah
+LEFT JOIN OrgHeader o ON o.OH_PK = ah.ah_oh
 {AccTransactionHeaderSql.DisplayJoins("ah")}
 {where}
 {orderBy}

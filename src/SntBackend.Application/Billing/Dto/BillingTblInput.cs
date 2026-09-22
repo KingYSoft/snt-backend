@@ -7,6 +7,8 @@ namespace SntBackend.Application.Billing.Dto
         public int SkipCount { get; set; }
         public int MaxResultCount { get; set; } = 20;
         public List<BillingTblFilterItem> filters { get; set; } = new();
+        public string job_number { get; set; }
+        public string job_invoice_number { get; set; }
     }
 
     public class BillingTblFilterItem

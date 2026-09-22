@@ -57,6 +57,18 @@ UNION ALL
 SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @user, @nowUtc, @user, @nowUtc, @counterOsAmount
 ";
 
+        private sealed class SettlementAllocation
+        {
+            public string InvoicePk { get; set; }
+            public string InvoiceNumber { get; set; }
+            public decimal Outstanding { get; set; }
+            public decimal OsTotal { get; set; }
+            public decimal ExchangeRate { get; set; }
+            public string Currency { get; set; }
+            public decimal WriteOffHome { get; set; }
+            public decimal WriteOffOriginal { get; set; }
+        }
+
         /// <summary>
         /// 前端当前传递的 bankAccountId 是银行编码，历史调用也可能传 BankPK。
         /// 统一解析成 AccBankAccount.ab_pk，写入 AccTransactionHeader.ah_ab。
@@ -279,9 +291,29 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
         private async Task<BillingTblOutput> GetPagedList(string ledger, BillingTblInput input)
         {
             var output = new BillingTblOutput();
+            input ??= new BillingTblInput();
             var dp = new DynamicParameters();
             dp.Add("ledger", ledger);
-            var whereIf = TblBuildWhere(input.filters, dp);
+            var filters = new List<BillingTblFilterItem>(input.filters ?? new List<BillingTblFilterItem>());
+            if (!string.IsNullOrWhiteSpace(input.job_number))
+            {
+                filters.Add(new BillingTblFilterItem
+                {
+                    key = "job_number",
+                    op = "Contain",
+                    val = input.job_number
+                });
+            }
+            if (!string.IsNullOrWhiteSpace(input.job_invoice_number))
+            {
+                filters.Add(new BillingTblFilterItem
+                {
+                    key = "job_invoice_number",
+                    op = "Contain",
+                    val = input.job_invoice_number
+                });
+            }
+            var whereIf = TblBuildWhere(filters, dp);
 
             var totalSql = @$"
 SELECT COUNT(*)
@@ -613,10 +645,7 @@ ORDER BY al_ah, al_sequence
             var expectedLedger = isReceipt ? "AR" : "AP";
 
             var remainingAmount = input.SettleAmount;
-            var newHeaderPks = new List<string>();
-            var affectedCount = 0;
-            var totalWriteOffOriginal = 0m;
-            var totalWriteOffHome = 0m;
+            var allocations = new List<SettlementAllocation>();
 
             foreach (var line in input.Lines)
             {
@@ -628,6 +657,7 @@ ORDER BY al_ah, al_sequence
                 var invSql = @"
 SELECT t.ah_ledger, t.ah_transactiontype, t.ah_transactionnum,
        t.ah_outstandingamount, t.ah_ostotal, t.ah_exchangerate,
+       t.ah_rx_nktransactioncurrency,
        t.ah_iscancelled
 FROM AccTransactionHeader t
 WHERE t.ah_pk = @pk
@@ -659,16 +689,43 @@ WHERE t.ah_pk = @pk
 
                 remainingAmount -= writeOffHome;
 
-                // 新建 REC/PAY Header — 从原 INV/BILL 整行复制再覆盖核销专属字段
-                // 这样所有 NOT NULL 列都自动满足约束（如 ah_systemcreatedepartment 等）
-                var newPk = Guid.NewGuid().ToString();
-                var description = string.IsNullOrWhiteSpace(input.Description)
-                    ? $"Match Write Off - {((object)invoice.ah_transactionnum)?.ToString()}"
-                    : input.Description;
-                var amount = isReceipt ? writeOffHome : -writeOffHome;
-                var amountOriginal = isReceipt ? writeOffOriginal : -writeOffOriginal;
+                allocations.Add(new SettlementAllocation
+                {
+                    InvoicePk = line.TthPk,
+                    InvoiceNumber = Convert.ToString(invoice.ah_transactionnum),
+                    Outstanding = outstanding,
+                    OsTotal = osTotal,
+                    ExchangeRate = exRate,
+                    Currency = Convert.ToString(invoice.ah_rx_nktransactioncurrency),
+                    WriteOffHome = writeOffHome,
+                    WriteOffOriginal = writeOffOriginal
+                });
+            }
 
-                var insertHeaderSql = @"
+            if (allocations.Count == 0)
+                throw new Exception("No eligible outstanding invoice was found for the selected lines.");
+
+            var currencies = allocations
+                .Select(x => x.Currency)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (currencies.Count > 1)
+                throw new Exception("A single settlement cannot include invoices in different currencies.");
+
+            var firstAllocation = allocations[0];
+            var totalWriteOffOriginal = allocations.Sum(x => x.WriteOffOriginal);
+            var totalWriteOffHome = allocations.Sum(x => x.WriteOffHome);
+            var newHeaderPks = new List<string>();
+            var newPk = Guid.NewGuid().ToString();
+            var firstDescription = string.IsNullOrWhiteSpace(input.Description)
+                ? $"Match Write Off - {firstAllocation.InvoiceNumber}"
+                : input.Description;
+            var amount = isReceipt ? totalWriteOffHome : -totalWriteOffHome;
+            var amountOriginal = isReceipt ? totalWriteOffOriginal : -totalWriteOffOriginal;
+
+            // 一次提交只建立一个 REC/PAY 结算头，所有发票通过 MatchLink 关联到该结算头。
+            var insertHeaderSql = @"
 INSERT INTO AccTransactionHeader (
     ah_pk, ah_ledger, ah_transactiontype, ah_compliancesubtype, ah_transactionnum,
     ah_transactioncount, ah_transactionreference, ah_desc,
@@ -737,26 +794,30 @@ SELECT
 FROM AccTransactionHeader t
 WHERE t.ah_pk = @origPk
 ";
-                var headerDp = new DynamicParameters();
-                headerDp.Add("newPk", newPk);
-                headerDp.Add("transType", transactionType);
-                headerDp.Add("matchNumber", matchNumber);
-                headerDp.Add("desc", description);
-                headerDp.Add("settleDate", settleDate);
-                headerDp.Add("amount", amount);
-                headerDp.Add("amountOriginal", amountOriginal);
-                headerDp.Add("refNo", input.RefNo ?? string.Empty);
-                headerDp.Add("chequeNo", input.ChequeNo ?? string.Empty);
-                headerDp.Add("bankPk", bankPk);
-                headerDp.Add("now", DateTime.UtcNow);
-                headerDp.Add("origPk", line.TthPk);
+            var headerDp = new DynamicParameters();
+            headerDp.Add("newPk", newPk);
+            headerDp.Add("transType", transactionType);
+            headerDp.Add("matchNumber", matchNumber);
+            headerDp.Add("desc", firstDescription);
+            headerDp.Add("settleDate", settleDate);
+            headerDp.Add("amount", amount);
+            headerDp.Add("amountOriginal", amountOriginal);
+            headerDp.Add("refNo", input.RefNo ?? string.Empty);
+            headerDp.Add("chequeNo", input.ChequeNo ?? string.Empty);
+            headerDp.Add("bankPk", bankPk);
+            headerDp.Add("now", DateTime.UtcNow);
+            headerDp.Add("origPk", firstAllocation.InvoicePk);
 
-                await _appSqlServerRepository.ExecuteAsync(insertHeaderSql, headerDp);
-                newHeaderPks.Add(newPk);
+            await _appSqlServerRepository.ExecuteAsync(insertHeaderSql, headerDp);
+            newHeaderPks.Add(newPk);
 
+            foreach (var allocation in allocations)
+            {
                 // 更新原发票 outstanding
-                var newOutstanding = outstanding - (isReceipt ? writeOffHome : -writeOffHome);
-                var newOsTotal = osTotal - (isReceipt ? writeOffOriginal : -writeOffOriginal);
+                var newOutstanding = allocation.Outstanding -
+                    (isReceipt ? allocation.WriteOffHome : -allocation.WriteOffHome);
+                var newOsTotal = allocation.OsTotal -
+                    (isReceipt ? allocation.WriteOffOriginal : -allocation.WriteOffOriginal);
                 var isFullyPaid = Math.Abs(newOutstanding) < 0.01m;
 
                 var updateInvSql = @"
@@ -775,41 +836,31 @@ WHERE ah_pk = @pk
                 updDp.Add("isFullyPaid", isFullyPaid ? 1 : 0);
                 updDp.Add("settleDate", settleDate);
                 updDp.Add("now", DateTime.UtcNow);
-                updDp.Add("pk", line.TthPk);
+                updDp.Add("pk", allocation.InvoicePk);
 
                 await _appSqlServerRepository.ExecuteAsync(updateInvSql, updDp);
 
-                // 核销链接：原发票 + 新建的 REC/PAY 各一条，同一 ap_matchgroupnum，金额一正一负。
-                // 少了这两行，销账列表(/reconciliation/writeoff/tbl、writeoff/detail)查不到本次核销
-                // —— 那两个接口是从 AccTransactionMatchLink 起查的。
-                // ap_matchdate 存本地时间、ap_system*utc 存 UTC（与库内既有数据一致）。
-                var invoiceLegAmount = isReceipt ? writeOffHome : -writeOffHome;
+                // 每张发票一对核销 link，共用同一个 REC/PAY 结算头。
+                var invoiceLegAmount = isReceipt ? allocation.WriteOffHome : -allocation.WriteOffHome;
                 var linkDp = new DynamicParameters();
                 linkDp.Add("matchGroup", matchGroupNum);
                 linkDp.Add("matchDate", settleDate);
-                linkDp.Add("invPk", line.TthPk);
+                linkDp.Add("invPk", allocation.InvoicePk);
                 linkDp.Add("counterPk", newPk);
                 linkDp.Add("invAmount", invoiceLegAmount);
                 linkDp.Add("counterAmount", -invoiceLegAmount);
-                linkDp.Add("invOsAmount", isReceipt ? writeOffOriginal : -writeOffOriginal);
-                linkDp.Add("counterOsAmount", isReceipt ? -writeOffOriginal : writeOffOriginal);
+                linkDp.Add("invOsAmount", isReceipt ? allocation.WriteOffOriginal : -allocation.WriteOffOriginal);
+                linkDp.Add("counterOsAmount", isReceipt ? -allocation.WriteOffOriginal : allocation.WriteOffOriginal);
                 linkDp.Add("nowUtc", DateTime.UtcNow);
                 linkDp.Add("user", MatchLinkUser);
                 await _appSqlServerRepository.ExecuteAsync(InsertMatchLinkPairSql, linkDp);
-
-                affectedCount++;
-                totalWriteOffOriginal += writeOffOriginal;
-                totalWriteOffHome += writeOffHome;
             }
-
-            if (affectedCount == 0)
-                throw new Exception("No eligible outstanding invoice was found for the selected lines.");
 
             return new SaveMatchWriteOffOutput
             {
                 MatchNumber = matchNumber,
                 TransactionHeaderPks = newHeaderPks,
-                AffectedInvoiceCount = affectedCount,
+                AffectedInvoiceCount = allocations.Count,
                 TotalWriteOffAmountOriginal = totalWriteOffOriginal,
                 TotalWriteOffAmountHome = totalWriteOffHome
             };

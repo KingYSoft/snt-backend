@@ -47,6 +47,11 @@ namespace SntBackend.Application.Billing
                 dp.Add("anchorPk", anchorPk);
         }
 
+        private static string ResolveChargeBranch(string chargeBranch, string jobBranch)
+        {
+            return string.IsNullOrWhiteSpace(chargeBranch) ? jobBranch : chargeBranch;
+        }
+
         /// <summary>
         /// 锚点（运单/合单）下有效的作业头 pk 列表；锚点已作废或没有作业头时返回空列表。
         /// 发票/费用都挂在作业头上，所以先取这一层再往下查，避免在大表上做相关子查询。
@@ -681,6 +686,7 @@ SELECT
     jh.jh_pk        AS jh_pk,
     jh.jh_parentid  AS anchor_pk,
     jh.jh_jobnum    AS jh_jobnum,
+    jr.jr_gb        AS jr_gb,
     jh.jh_gb        AS jh_gb,
     jh.jh_gc        AS jh_gc,
     jh.jh_ge        AS jh_ge
@@ -717,8 +723,13 @@ WHERE jr.jr_pk IN @pks
             var invoiceDate = now.Date;
             var created = new List<(string ahPk, string invNo)>();
 
-            // 按 结算单位 + 币种 分组，每组一个草稿发票
-            var groups = charges.GroupBy(x => new { Party = x.party_oh ?? "", Ccy = x.currency ?? "" });
+            // 按 结算单位 + 币种 + Branch 分组，每组一个草稿发票
+            var groups = charges.GroupBy(x => new
+            {
+                Party = x.party_oh ?? "",
+                Ccy = x.currency ?? "",
+                Branch = ResolveChargeBranch(x.jr_gb, x.jh_gb)
+            });
 
             foreach (var g in groups)
             {
@@ -745,7 +756,7 @@ WHERE jr.jr_pk IN @pks
                 hp.Add("rate", first.exchange_rate ?? 0m);
                 hp.Add("oh", string.IsNullOrWhiteSpace(g.Key.Party) ? null : g.Key.Party);
                 hp.Add("jh", first.jh_pk);
-                hp.Add("gb", first.jh_gb);
+                hp.Add("gb", g.Key.Branch);
                 hp.Add("gc", first.jh_gc);
                 hp.Add("ge", first.jh_ge);
                 hp.Add("jobnum", first.jh_jobnum);
@@ -777,7 +788,7 @@ WHERE jr.jr_pk IN @pks
                     lp.Add("rate", c.exchange_rate ?? 0m);
                     lp.Add("jh", c.jh_pk);
                     lp.Add("oh", string.IsNullOrWhiteSpace(c.party_oh) ? null : c.party_oh);
-                    lp.Add("gb", c.jh_gb);
+                    lp.Add("gb", ResolveChargeBranch(c.jr_gb, c.jh_gb));
                     lp.Add("gc", c.jh_gc);
                     lp.Add("ge", c.jh_ge);
                     lp.Add("ah", ahPk);
@@ -1679,6 +1690,7 @@ WHERE t.al_pk = @templatePk
             public string jh_pk { get; set; }
             public string anchor_pk { get; set; }
             public string jh_jobnum { get; set; }
+            public string jr_gb { get; set; }
             public string jh_gb { get; set; }
             public string jh_gc { get; set; }
             public string jh_ge { get; set; }

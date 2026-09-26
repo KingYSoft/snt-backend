@@ -9,6 +9,7 @@ using Abp.Threading.BackgroundWorkers;
 using Facade.AutoMapper;
 using Facade.Quartz;
 using SntBackend.DomainService.BackgroundWorkers;
+using SntBackend.DomainService.Authorization;
 using SntBackend.DomainService.Features;
 using SntBackend.DomainService.Localization;
 using SntBackend.DomainService.Navigation;
@@ -36,7 +37,7 @@ namespace SntBackend.DomainService
 
             SntBackendLocalizationConfigurer.Configure(Configuration.Localization);
 
-            //Configuration.Authorization.Providers.Add<MyAuthorizationProvider>();
+            Configuration.Authorization.Providers.Add<MyAuthorizationProvider>();
             Configuration.Navigation.Providers.Add<MyNavigationProvider>();
             Configuration.Features.Providers.Add<MyFeatureProvider>();
 

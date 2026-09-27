@@ -15,6 +15,7 @@ namespace SntBackend.Application.Authorization
     /// <summary>
     /// 统一生成业务数据权限条件。
     /// 业务表沿用现有 company/branch/department pk 字段，权限范围来自 SYS_GROUP_PERMISSION。
+    /// 管理员组可跳过业务组织范围和当前 Token 组织上下文过滤。
     /// </summary>
     public sealed class BusinessDataPermissionService : ITransientDependency
     {
@@ -63,25 +64,32 @@ namespace SntBackend.Application.Authorization
     INNER JOIN SYS_GROUP g
         ON g.pk = gu.group_pk
        AND g.is_active = 1
-    INNER JOIN SYS_GROUP_PERMISSION gp
+    LEFT JOIN SYS_GROUP_PERMISSION gp
         ON gp.group_pk = g.pk
        AND gp.is_allow = 'Y'
-    INNER JOIN SYS_GROUP_PERMISSION_NAME gpn
+    LEFT JOIN SYS_GROUP_PERMISSION_NAME gpn
         ON gpn.group_permission_pk = gp.pk
     WHERE gu.user_pk = @{prefix}_staff_pk
-      AND gpn.permission_name = @{prefix}_permission_name
-      AND (@{prefix}_company_pk IS NULL OR {companyColumn} = @{prefix}_company_pk)
-      AND (@{prefix}_branch_pk IS NULL OR {branchColumn} = @{prefix}_branch_pk)
-      AND (@{prefix}_dept_pk IS NULL OR {departmentColumn} = @{prefix}_dept_pk)
       AND
       (
-          (gp.company_pk IS NULL AND gp.branch_pk IS NULL AND gp.dept_pk IS NULL)
+          g.is_admin = 'Y'
           OR
-          ({companyColumn} = gp.company_pk AND gp.branch_pk IS NULL AND gp.dept_pk IS NULL)
-          OR
-          ({branchColumn} = gp.branch_pk AND gp.dept_pk IS NULL)
-          OR
-          ({departmentColumn} = gp.dept_pk)
+          (
+              gpn.permission_name = @{prefix}_permission_name
+              AND (@{prefix}_company_pk IS NULL OR {companyColumn} = @{prefix}_company_pk)
+              AND (@{prefix}_branch_pk IS NULL OR {branchColumn} = @{prefix}_branch_pk)
+              AND (@{prefix}_dept_pk IS NULL OR {departmentColumn} = @{prefix}_dept_pk)
+              AND
+              (
+                  (gp.company_pk IS NULL AND gp.branch_pk IS NULL AND gp.dept_pk IS NULL)
+                  OR
+                  ({companyColumn} = gp.company_pk AND gp.branch_pk IS NULL AND gp.dept_pk IS NULL)
+                  OR
+                  ({branchColumn} = gp.branch_pk AND gp.dept_pk IS NULL)
+                  OR
+                  ({departmentColumn} = gp.dept_pk)
+              )
+          )
       )
 )";
         }

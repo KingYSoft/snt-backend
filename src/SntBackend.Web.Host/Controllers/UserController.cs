@@ -148,15 +148,16 @@ namespace SntBackend.Web.Host.Controllers
             }
 
             await _permissionCache.ClearAsync(staff.gs_pk);
+            var isSystemAdmin = (await _permissionCache.GetGrantedNamesAsync(staff.gs_pk)).Contains("*");
 
             var identity = CreateClaimsIdentity(
                 "1",
                 staff.gs_loginname,
                 string.Empty,
                 staff.gs_pk,
-                staff.gs_gc_homecompany,
-                staff.gs_gb_homebranch,
-                staff.gs_ge_homedepartment);
+                isSystemAdmin ? null : staff.gs_gc_homecompany,
+                isSystemAdmin ? null : staff.gs_gb_homebranch,
+                isSystemAdmin ? null : staff.gs_ge_homedepartment);
             var accessToken = GetEncrpyedAccessToken(CreateAccessToken(CreateJwtClaims(identity)));
 
             return new JsonResponse<UserLoginOutput>
@@ -167,9 +168,9 @@ namespace SntBackend.Web.Host.Controllers
                     full_name = staff.gs_fullname,
                     email_address = staff.gs_emailaddress,
                     login_name = staff.gs_loginname,
-                    company_pk = staff.gs_gc_homecompany,
-                    branch_pk = staff.gs_gb_homebranch,
-                    dept_pk = staff.gs_ge_homedepartment
+                    company_pk = isSystemAdmin ? null : staff.gs_gc_homecompany,
+                    branch_pk = isSystemAdmin ? null : staff.gs_gb_homebranch,
+                    dept_pk = isSystemAdmin ? null : staff.gs_ge_homedepartment
                 }
             };
         }
@@ -203,15 +204,16 @@ namespace SntBackend.Web.Host.Controllers
                 return new JsonResponse<UserLoginOutput>(false, LoginFailedMessage);
 
             await _permissionCache.ClearAsync(staff.gs_pk);
+            var isSystemAdmin = (await _permissionCache.GetGrantedNamesAsync(staff.gs_pk)).Contains("*");
 
             var identity = CreateClaimsIdentity(
                 "1",
                 staff.gs_loginname,
                 string.Empty,
                 staff.gs_pk,
-                scope.company_pk,
-                scope.branch_pk,
-                scope.dept_pk);
+                isSystemAdmin ? null : scope.company_pk,
+                isSystemAdmin ? null : scope.branch_pk,
+                isSystemAdmin ? null : scope.dept_pk);
             var accessToken = GetEncrpyedAccessToken(CreateAccessToken(CreateJwtClaims(identity)));
 
             return new JsonResponse<UserLoginOutput>
@@ -222,9 +224,9 @@ namespace SntBackend.Web.Host.Controllers
                     full_name = staff.gs_fullname,
                     email_address = staff.gs_emailaddress,
                     login_name = staff.gs_loginname,
-                    company_pk = scope.company_pk,
-                    branch_pk = scope.branch_pk,
-                    dept_pk = scope.dept_pk
+                    company_pk = isSystemAdmin ? null : scope.company_pk,
+                    branch_pk = isSystemAdmin ? null : scope.branch_pk,
+                    dept_pk = isSystemAdmin ? null : scope.dept_pk
                 }
             };
         }

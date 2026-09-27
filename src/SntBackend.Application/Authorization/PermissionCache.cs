@@ -45,10 +45,10 @@ INNER JOIN GlbStaff s
 INNER JOIN SYS_GROUP g
     ON g.pk = gu.group_pk
    AND g.is_active = 1
-INNER JOIN SYS_GROUP_PERMISSION p
+LEFT JOIN SYS_GROUP_PERMISSION p
     ON p.group_pk = g.pk
    AND p.is_allow = N'Y'
-INNER JOIN SYS_GROUP_PERMISSION_NAME pn
+LEFT JOIN SYS_GROUP_PERMISSION_NAME pn
     ON pn.group_permission_pk = p.pk
 WHERE gu.user_pk = @staffPk", new { staffPk });
 

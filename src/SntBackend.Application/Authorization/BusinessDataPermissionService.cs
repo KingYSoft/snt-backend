@@ -332,6 +332,75 @@ WHERE d.pk = @deptPk
             });
         }
 
+        /// <summary>
+        /// Resolves a branch-level organization scope. SNT does not require a
+        /// department for switching; the optional admin flag preserves the
+        /// existing full-access behavior for administrator groups.
+        /// </summary>
+        public async Task<OrganizationScope> GetAccessibleBranchAsync(
+            string staffPk,
+            string companyPk,
+            string branchPk,
+            bool isSystemAdmin)
+        {
+            if (string.IsNullOrWhiteSpace(staffPk) || string.IsNullOrWhiteSpace(branchPk))
+                return null;
+
+            return await _repository.QueryFirstOrDefaultAsync<OrganizationScope>(@"
+SELECT TOP 1
+    b.GB_GC AS company_pk,
+    b.GB_PK AS branch_pk,
+    CAST(NULL AS uniqueidentifier) AS dept_pk
+FROM GlbBranch b
+INNER JOIN GlbCompany c ON c.GC_PK = b.GB_GC
+WHERE b.GB_PK = @branchPk
+  AND (@companyPk IS NULL OR b.GB_GC = @companyPk)
+  AND b.GB_IsActive = 1
+  AND b.GB_IsValid = 1
+  AND c.GC_IsActive = 1
+  AND c.GC_IsValid = 1
+  AND
+  (
+      @isSystemAdmin = 1
+      OR EXISTS
+      (
+          SELECT 1
+          FROM SYS_GROUP_USER gu
+          INNER JOIN SYS_GROUP g
+              ON g.pk = gu.group_pk
+             AND g.is_active = 1
+          LEFT JOIN SYS_GROUP_PERMISSION gp
+              ON gp.group_pk = g.pk
+             AND gp.is_allow = N'Y'
+          LEFT JOIN SYS_GROUP_PERMISSION_NAME gpn
+              ON gpn.group_permission_pk = gp.pk
+          WHERE gu.user_pk = @staffPk
+            AND
+            (
+                g.is_admin = N'Y'
+                OR gpn.permission_name IN @organizationPermissions
+            )
+            AND
+            (
+                (gp.company_pk IS NULL AND gp.branch_pk IS NULL AND gp.dept_pk IS NULL)
+                OR (gp.company_pk = b.GB_GC AND gp.branch_pk IS NULL AND gp.dept_pk IS NULL)
+                OR (gp.branch_pk = b.GB_PK AND gp.dept_pk IS NULL)
+            )
+      )
+  )", new
+            {
+                staffPk,
+                companyPk = string.IsNullOrWhiteSpace(companyPk) ? null : companyPk.Trim(),
+                branchPk = branchPk.Trim(),
+                isSystemAdmin,
+                organizationPermissions = new[]
+                {
+                    PermissionNameConsts.Business,
+                    PermissionNameConsts.Settlement
+                }
+            });
+        }
+
         public sealed class OrganizationScope
         {
             public string company_pk { get; set; }

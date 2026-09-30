@@ -36,7 +36,7 @@ namespace SntBackend.Application.Billing
         Task<List<ChargeCodeOptionOutput>> ChargeCodeOptions(string query, string companyPk = null);
 
         /// <summary>分公司/分支下拉框（来源 GlbBranch）。</summary>
-        Task<List<BranchOptionOutput>> BranchOptions(string query);
+        Task<List<BillingBranchOptionOutput>> BranchOptions(string query);
 
         /// <summary>GST 税率下拉框（来源 AccTaxRate）。</summary>
         Task<List<GstRateOptionOutput>> GstRateOptions(string query);

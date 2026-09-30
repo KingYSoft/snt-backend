@@ -94,10 +94,10 @@ public class BillingController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("branch-options")]
-    public async Task<JsonResponse<List<BranchOptionOutput>>> BranchOptions([FromQuery] string query)
+    public async Task<JsonResponse<List<BillingBranchOptionOutput>>> BranchOptions([FromQuery] string query)
     {
         var result = await _billingApplication.BranchOptions(query);
-        return new JsonResponse<List<BranchOptionOutput>> { Data = result };
+        return new JsonResponse<List<BillingBranchOptionOutput>> { Data = result };
     }
 
     /// <summary>

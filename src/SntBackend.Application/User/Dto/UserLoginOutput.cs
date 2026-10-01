@@ -10,5 +10,8 @@ namespace SntBackend.Application.User.Dto
         public string full_name { get; set; }
         public string login_name { get; set; }
         public string email_address { get; set; }
+        public string company_pk { get; set; }
+        public string branch_pk { get; set; }
+        public string dept_pk { get; set; }
     }
 }

@@ -193,9 +193,8 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 
         /// <summary>
         /// 按锚点 + AR/AP 分页查询发票头。
-        /// 类型含 INV(发票) 与 CRD(贷项通知/红字发票)。
-        /// 注：作废已过账账单生成的那种冲销 CRD 自身是 ah_iscancelled = 1，会被这里的条件排除；
-        /// 能查出来的 CRD 是仍然有效的贷项通知单。
+        /// 只返回当前运单下仍有效的正式发票。作废原票和作废后生成的冲销 CRD
+        /// 不应混入运单账单列表，否则同一笔费用会出现重复金额。
         /// </summary>
         public async Task<BillingDraftPageOutput> QueryDraftPageAsync(BillingScope scope, string anchorPk,
             string chargeType, int skipCount, int maxResultCount, string sorting)
@@ -233,6 +232,8 @@ WHERE
  ( ah.ah_jh IN @jhPks
        OR ( ah.ah_jh IS NULL
             AND ah.ah_pk IN (SELECT al.al_ah FROM AccTransactionLines al WHERE al.al_jh IN @jhPks) ) )
+    AND ah.ah_iscancelled = 0
+    AND ah.ah_transactiontype = 'INV'
     {ledgerWhere}";
 
             var totalSql = $@"

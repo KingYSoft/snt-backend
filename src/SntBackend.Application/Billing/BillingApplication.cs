@@ -313,7 +313,14 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                     val = input.job_invoice_number
                 });
             }
+            var hasCancelledFilter = filters.Any(item =>
+                string.Equals(item.key, "ah_iscancelled", StringComparison.OrdinalIgnoreCase));
             var whereIf = TblBuildWhere(filters, dp);
+            // 默认只显示有效交易；只有用户明确填写“已取消”筛选时才放开作废记录。
+            if (!hasCancelledFilter)
+            {
+                whereIf += " AND ISNULL(t.ah_iscancelled, 0) = 0 ";
+            }
 
             var totalSql = @$"
 SELECT COUNT(*)
@@ -492,6 +499,27 @@ ORDER BY l.al_sequence
             {
                 whereIf += " AND t.ah_ledger = @ledgerScope ";
                 dp.Add("ledgerScope", input.LedgerScope);
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.JobNumber))
+            {
+                whereIf += @" AND (
+                    t.ah_jobnumber = @jobNumber
+                    OR EXISTS (
+                        SELECT 1
+                        FROM JobHeader jh
+                        WHERE jh.jh_pk = t.ah_jh
+                            AND jh.jh_jobnum = @jobNumber
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM AccTransactionLines l
+                        INNER JOIN JobHeader lineJH ON lineJH.jh_pk = l.al_jh
+                        WHERE l.al_ah = t.ah_pk
+                            AND lineJH.jh_jobnum = @jobNumber
+                    )
+                ) ";
+                dp.Add("jobNumber", input.JobNumber.Trim());
             }
 
             if (!string.IsNullOrWhiteSpace(input.Query))
@@ -907,8 +935,19 @@ WHERE ah_pk = @pk
             {
                 whereIf += @" AND (
                     t.ah_jobnumber LIKE @jobNumber
-                    OR t.ah_transactionnum LIKE @jobNumber
-                    OR t.ah_originaltransactionnum LIKE @jobNumber
+                    OR EXISTS (
+                        SELECT 1
+                        FROM JobHeader jh
+                        WHERE jh.jh_pk = t.ah_jh
+                            AND jh.jh_jobnum LIKE @jobNumber
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM AccTransactionLines l
+                        INNER JOIN JobHeader lineJH ON lineJH.jh_pk = l.al_jh
+                        WHERE l.al_ah = t.ah_pk
+                            AND lineJH.jh_jobnum LIKE @jobNumber
+                    )
                 ) ";
                 dp.Add("jobNumber", $"%{input.JobNumber}%");
             }
@@ -936,8 +975,9 @@ SELECT
     t.ah_transactionnum AS MatchNumber,
     t.ah_oh AS BillingParty,
     o.oh_fullname AS BillingPartyName,
+    t.ah_jobnumber AS JobNumber,
     t.ah_rx_nktransactioncurrency AS Currency,
-    t.ah_localtotal AS SettledAmount,
+    t.ah_ostotal AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
     t.ah_desc AS Description
 FROM AccTransactionHeader t
@@ -1003,7 +1043,7 @@ ORDER BY b.ab_accountnum
             return (await _appSqlServerRepository.QueryAsync<AccBankAccountDtoOutput>(sql, dp)).ToList();
         }
 
-        public async Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk)
+        public async Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk, string jobNumber = null)
         {
             try
             {
@@ -1014,26 +1054,76 @@ ORDER BY b.ab_accountnum
 SELECT h.*, o.oh_fullname
 FROM AccTransactionHeader h
 LEFT JOIN OrgHeader o ON o.oh_pk = h.ah_oh
-WHERE h.ah_pk = @pk";
+ WHERE h.ah_pk = @pk
                 var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
 
                 if (header == null) return null;
 
                 MatchTransactionDetailOutput detail = new MatchTransactionDetailOutput { Header = header };
 
+                var jobScope = await _appSqlServerRepository.QueryFirstOrDefaultAsync<dynamic>(@"
+SELECT h.ah_jh AS JobHeaderPk,
+       COALESCE(NULLIF(h.ah_jobnumber, ''),
+           (SELECT TOP 1 jh.jh_jobnum FROM JobHeader jh WHERE jh.jh_pk = h.ah_jh),
+           (SELECT TOP 1 lineJH.jh_jobnum
+            FROM AccTransactionLines l
+            INNER JOIN JobHeader lineJH ON lineJH.jh_pk = l.al_jh
+            WHERE l.al_ah = h.ah_pk AND l.al_jh IS NOT NULL)) AS JobNumber
+FROM AccTransactionHeader h
+WHERE h.ah_pk = @pk",
+                    new DynamicParameters(new { pk }));
+                var detailJobHeaderPk = Convert.ToString(jobScope?.JobHeaderPk)?.Trim();
+                var detailJobNumber = string.IsNullOrWhiteSpace(jobNumber)
+                    ? Convert.ToString(jobScope?.JobNumber)?.Trim()
+                    : jobNumber.Trim();
+
                 // 详情需要展示真正被核销的发票，而不是用 REC/PAY 结算头伪造一行。
-                // 一个结算头可能对应多个发票，因此这里返回整个匹配组。
+                // 一个结算头可能对应多个发票，但详情只返回当前工作单范围内的发票。
                 var matchLinksSql = @"
 SELECT m.*
 FROM AccTransactionMatchLink m
+INNER JOIN AccTransactionHeader linked ON linked.ah_pk = m.ap_ah
 WHERE m.ap_matchgroupnum IN (
     SELECT DISTINCT x.ap_matchgroupnum
     FROM AccTransactionMatchLink x
     WHERE x.ap_ah = @pk
 )
+{jobScope}
 ORDER BY m.ap_matchdate, m.ap_pk";
+                var matchLinkDp = new DynamicParameters(new { pk });
+                var jobScopeSql = string.Empty;
+                if (!string.IsNullOrWhiteSpace(detailJobHeaderPk) || !string.IsNullOrWhiteSpace(detailJobNumber))
+                {
+                    jobScopeSql = @" AND (
+    linked.ah_pk = @pk
+    OR (@jobHeaderPk IS NOT NULL AND linked.ah_jh = @jobHeaderPk)
+    OR (@jobNumber IS NOT NULL AND linked.ah_jobnumber = @jobNumber)
+    OR (@jobNumber IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM JobHeader linkedJH
+        WHERE linkedJH.jh_pk = linked.ah_jh
+            AND linkedJH.jh_jobnum = @jobNumber
+    ))
+    OR (@jobHeaderPk IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM AccTransactionLines linkedLine
+        WHERE linkedLine.al_ah = linked.ah_pk
+            AND linkedLine.al_jh = @jobHeaderPk
+    ))
+    OR (@jobNumber IS NOT NULL AND EXISTS (
+        SELECT 1
+        FROM AccTransactionLines linkedLine
+        INNER JOIN JobHeader linkedLineJH ON linkedLineJH.jh_pk = linkedLine.al_jh
+        WHERE linkedLine.al_ah = linked.ah_pk
+            AND linkedLineJH.jh_jobnum = @jobNumber
+    ))
+)";
+                    matchLinkDp.Add("jobHeaderPk", string.IsNullOrWhiteSpace(detailJobHeaderPk) ? null : detailJobHeaderPk);
+                    matchLinkDp.Add("jobNumber", string.IsNullOrWhiteSpace(detailJobNumber) ? null : detailJobNumber);
+                }
+                matchLinksSql = matchLinksSql.Replace("{jobScope}", jobScopeSql);
                 var matchLinks = (await _appSqlServerRepository.QueryAsync<AccTransactionMatchLinkDtoOutput>(
-                    matchLinksSql, new DynamicParameters(new { pk }))).ToList();
+                    matchLinksSql, matchLinkDp)).ToList();
                 detail.MatchLinks = matchLinks;
 
                 if (!string.IsNullOrWhiteSpace(header.ah_ab))
@@ -1055,22 +1145,35 @@ ORDER BY m.ap_matchdate, m.ap_pk";
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
+                if (string.Equals(header.ah_transactiontype, "INV", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(header.ah_transactiontype, "BILL", StringComparison.OrdinalIgnoreCase))
+                {
+                    linkedInvoicePks.Insert(0, header.ah_pk);
+                }
+
                 foreach (var invoicePk in linkedInvoicePks)
                 {
+                    var invoiceDp = new DynamicParameters();
+                    invoiceDp.Add("invoicePk", invoicePk);
                     var invoice = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(
                         @"SELECT h.*, o.oh_fullname
                           FROM AccTransactionHeader h
                           LEFT JOIN OrgHeader o ON o.oh_pk = h.ah_oh
-                          WHERE h.ah_pk = @invoicePk",
-                        new DynamicParameters(new { invoicePk }));
+                          WHERE h.ah_pk = @invoicePk
+                        invoiceDp);
                     if (invoice == null) continue;
+                    if (!string.Equals(invoice.ah_transactiontype, "INV", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(invoice.ah_transactiontype, "BILL", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
 
                     // 部分历史账单未把 Job No. 冗余写入 AccTransactionHeader.ah_jobnumber，
                     // 但仍通过 ah_jh 关联到 JobHeader。详情页应使用关联作业号作为回退值。
-                    var jobNumber = invoice.ah_jobnumber;
-                    if (string.IsNullOrWhiteSpace(jobNumber) && !string.IsNullOrWhiteSpace(invoice.ah_jh))
+                    var invoiceJobNumber = invoice.ah_jobnumber;
+                    if (string.IsNullOrWhiteSpace(invoiceJobNumber) && !string.IsNullOrWhiteSpace(invoice.ah_jh))
                     {
-                        jobNumber = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(
+                        invoiceJobNumber = await _appSqlServerRepository.QueryFirstOrDefaultAsync<string>(
                             @"SELECT jh_jobnum
                               FROM JobHeader
                               WHERE jh_pk = @jobHeaderPk",
@@ -1101,7 +1204,7 @@ ORDER BY m.ap_matchdate, m.ap_pk";
                         Id = invoice.ah_pk,
                         TthPk = invoice.ah_pk,
                         Ledger = invoice.ah_ledger,
-                        JobNo = jobNumber,
+                        JobNo = invoiceJobNumber,
                         TaxInvoiceNo = invoice.ah_transactionnum,
                         InvoiceNumber = invoice.ah_transactionnum,
                         BillingDate = invoice.ah_invoicedate,

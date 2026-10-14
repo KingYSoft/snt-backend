@@ -18,7 +18,7 @@ namespace SntBackend.Application.Billing
         Task<SaveMatchWriteOffOutput> SaveMatchWriteOff(SaveMatchWriteOffInput input);
         Task<MatchTransactionPageOutput> QueryMatchTransactionPage(MatchTransactionPageInput input);
         Task<List<AccTransactionLinesDtoOutput>> QueryMatchTransactionLines(MatchTransactionLinesInput input);
-        Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk);
+        Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk, string jobNumber = null);
         Task<List<AccBankAccountDtoOutput>> QueryWriteOffBank(WriteOffBankInput input);
 
         Task<BillingChargeLineOutput> QueryChargeLine(BillingChargeLineInput input);

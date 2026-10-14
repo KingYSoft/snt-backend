@@ -1054,7 +1054,7 @@ ORDER BY b.ab_accountnum
 SELECT h.*, o.oh_fullname
 FROM AccTransactionHeader h
 LEFT JOIN OrgHeader o ON o.oh_pk = h.ah_oh
- WHERE h.ah_pk = @pk
+ WHERE h.ah_pk = @pk";
                 var header = await _appSqlServerRepository.QueryFirstOrDefaultAsync<AccTransactionHeaderDtoOutput>(sql, dp);
 
                 if (header == null) return null;
@@ -1159,7 +1159,7 @@ ORDER BY m.ap_matchdate, m.ap_pk";
                         @"SELECT h.*, o.oh_fullname
                           FROM AccTransactionHeader h
                           LEFT JOIN OrgHeader o ON o.oh_pk = h.ah_oh
-                          WHERE h.ah_pk = @invoicePk
+                          WHERE h.ah_pk = @invoicePk",
                         invoiceDp);
                     if (invoice == null) continue;
                     if (!string.Equals(invoice.ah_transactiontype, "INV", StringComparison.OrdinalIgnoreCase)

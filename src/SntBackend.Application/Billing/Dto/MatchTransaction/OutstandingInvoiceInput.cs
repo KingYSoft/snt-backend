@@ -4,6 +4,7 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
     {
         public string BillingParty { get; set; }
         public string LedgerScope { get; set; } = "BOTH";
+        public string JobNumber { get; set; }
         public string Query { get; set; }
         public string StatementNo { get; set; }
         public string Currency { get; set; }

@@ -73,9 +73,9 @@ public class MatchTransactionController : SntBackendControllerBase
     /// </summary>
     [HttpGet]
     [Route("detail")] 
-    public async Task<JsonResponse<MatchTransactionDetailOutput>> Detail([FromQuery] string Pk)
+    public async Task<JsonResponse<MatchTransactionDetailOutput>> Detail([FromQuery] string Pk, [FromQuery] string JobNumber = null)
     {
-        var result = await _billingApplication.MatchTransactionDetail(Pk);
+        var result = await _billingApplication.MatchTransactionDetail(Pk, JobNumber);
         if (result == null)
         {
             return new JsonResponse<MatchTransactionDetailOutput>(false, "Match transaction record not found.");

@@ -15,6 +15,7 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
         public string MatchNumber { get; set; }
         public string BillingParty { get; set; }
         public string BillingPartyName { get; set; }
+        public string JobNumber { get; set; }
         public string Currency { get; set; }
         public decimal SettledAmount { get; set; }
         public string PaymentDate { get; set; }

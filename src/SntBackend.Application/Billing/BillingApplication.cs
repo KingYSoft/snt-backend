@@ -917,6 +917,8 @@ WHERE ah_pk = @pk
         {
             var output = new MatchTransactionPageOutput();
             var dp = new DynamicParameters();
+            var jobMatchSetup = "";
+            var jobMatchJoin = "";
             // 结算匹配列表只展示已经产生核销关联的交易，避免未结算发票直接出现在列表中。
             var whereIf = @"
                 AND EXISTS (
@@ -933,22 +935,29 @@ WHERE ah_pk = @pk
 
             if (!string.IsNullOrWhiteSpace(input.JobNumber))
             {
-                whereIf += @" AND (
-                    t.ah_jobnumber LIKE @jobNumber
-                    OR EXISTS (
-                        SELECT 1
-                        FROM JobHeader jh
-                        WHERE jh.jh_pk = t.ah_jh
-                            AND jh.jh_jobnum LIKE @jobNumber
-                    )
-                    OR EXISTS (
-                        SELECT 1
-                        FROM AccTransactionLines l
-                        INNER JOIN JobHeader lineJH ON lineJH.jh_pk = l.al_jh
-                        WHERE l.al_ah = t.ah_pk
-                            AND lineJH.jh_jobnum LIKE @jobNumber
-                    )
-                ) ";
+                // 保留原有三种命中路径，但先汇总交易主键，避免对每条交易重复执行相关子查询。
+                jobMatchSetup = @"
+;WITH JobScope AS (
+    SELECT jh_pk
+    FROM JobHeader
+    WHERE jh_jobnum LIKE @jobNumber
+), MatchedHeaders AS (
+    SELECT t.ah_pk
+    FROM AccTransactionHeader t
+    INNER JOIN JobScope js ON js.jh_pk = t.ah_jh
+    UNION
+    SELECT l.al_ah
+    FROM AccTransactionLines l
+    INNER JOIN JobScope js ON js.jh_pk = l.al_jh
+    UNION
+    SELECT t.ah_pk
+    FROM AccTransactionHeader t
+    WHERE t.ah_jobnumber LIKE @jobNumber
+)
+SELECT DISTINCT ah_pk INTO #MatchedJobHeaders
+FROM MatchedHeaders;
+";
+                jobMatchJoin = " INNER JOIN #MatchedJobHeaders jobMatch ON jobMatch.ah_pk = t.ah_pk ";
                 dp.Add("jobNumber", $"%{input.JobNumber}%");
             }
 
@@ -964,6 +973,7 @@ WHERE ah_pk = @pk
             var totalSql = @$"
 SELECT COUNT(*)
 FROM AccTransactionHeader t
+{jobMatchJoin}
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
@@ -981,6 +991,7 @@ SELECT
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
     t.ah_desc AS Description
 FROM AccTransactionHeader t
+{jobMatchJoin}
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
@@ -990,6 +1001,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
 
             using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
+{jobMatchSetup}
 {totalSql};
 {pageSql}
 ", dp))

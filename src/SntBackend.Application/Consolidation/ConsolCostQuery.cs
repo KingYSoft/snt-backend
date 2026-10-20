@@ -278,7 +278,7 @@ WHERE jn.jn_jk = @jkPk
             var dp = new DynamicParameters();
             dp.Add("jhPks", jhPks);
 
-            // 访问路径全部按实测索引选定（都是 QI1PRD 上 sys.indexes 的实际情况）：
+            // 访问路径全部按实测索引选定（都是 QI1CW1 上 sys.indexes 的实际情况）：
             //  · jr_jh 是 IX_JobCharge_QueryChargeLine_Job_Order 的首键列，走 seek；该索引的 INCLUDE
             //    已覆盖本查询要的 JR_LocalCostAmt / JR_OSCostAmt / JR_RX_NKCostCurrency /
             //    JR_AL_APLine / JR_Desc。

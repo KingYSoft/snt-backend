@@ -306,6 +306,26 @@ ORDER BY c.jk_pk;
             dp.Add("id", id, DbType.AnsiString);
 
             using var multi = await _appSqlServerRepository.QueryMultipleAsync(@"
+WITH CandidateContainers AS
+(
+    SELECT jc.jc_pk
+    FROM JobContainer jc
+    WHERE jc.jc_js_fclbookingonlylink = @id
+
+    UNION
+
+    SELECT p.J6_JC
+    FROM JobContainerPackPivot p
+    INNER JOIN JobPackLines jl ON jl.jl_pk = p.J6_JL
+    WHERE jl.jl_js = @id
+
+    UNION
+
+    SELECT jc.jc_pk
+    FROM JobContainer jc
+    INNER JOIN JobConShipLink csl ON csl.jn_jk = jc.jc_jk
+    WHERE csl.jn_js = @id
+)
 SELECT jl.*,
     agg.total_volume AS pac_actual_volume,
     agg.pack_count AS pac_package_count,
@@ -319,7 +339,8 @@ SELECT jl.*,
     agg.pack_type,
     agg.total_volume,
     agg.total_weight
-FROM JobContainer jc
+FROM CandidateContainers cc
+INNER JOIN JobContainer jc ON jc.jc_pk = cc.jc_pk
 OUTER APPLY (
     SELECT TOP 1 jl.*
     FROM JobContainerPackPivot p
@@ -340,20 +361,7 @@ OUTER APPLY (
     WHERE p2.J6_JC = jc.jc_pk
       AND jl2.jl_js = @id
 ) agg
-WHERE jc.jc_js_fclbookingonlylink = @id
-    OR EXISTS (
-        SELECT 1
-        FROM JobContainerPackPivot p3
-        INNER JOIN JobPackLines jl3 ON jl3.jl_pk = p3.J6_JL
-        WHERE p3.J6_JC = jc.jc_pk
-          AND jl3.jl_js = @id
-    )
-    OR EXISTS (
-        SELECT 1
-        FROM JobConShipLink csl
-        WHERE csl.jn_jk = jc.jc_jk
-          AND csl.jn_js = @id
-    );
+;
 ", dp);
 
             // 平铺读取：jl.* 映射到货物明细，jc_pk 起的列映射到 container

@@ -1759,10 +1759,6 @@ namespace SntBackend.Application.Po.Dto
         /// <summary>
         /// 
         /// </summary>
-        public int gs_autoversion { get; set; }
-        /// <summary>
-        /// 
-        /// </summary>
         public string gs_emergencycontactemail { get; set; }
         /// <summary>
         /// 
@@ -1840,6 +1836,14 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public string gs_systemcreatedepartment { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public byte[] gs_rowversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int? gs_autoversion { get; set; }
     }
 
     /// <summary>
@@ -2248,6 +2252,18 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public string jr_sellratingoverridecomment { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_costchargecreationsource { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jr_sellchargecreationsource { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jr_cusentrynumber { get; set; }
     }
 
     /// <summary>
@@ -2760,6 +2776,14 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public string jk_rct_carriercontract { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jk_iscarrierdoordelivery { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int jk_iscarrierdoorpickup { get; set; }
     }
 
     /// <summary>
@@ -2800,10 +2824,6 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public string jw_pl_nkcarrierservicelevel { get; set; }
-        /// <summary>
-        /// 
-        /// </summary>
-        public string jw_vessel { get; set; }
         /// <summary>
         /// 
         /// </summary>
@@ -3024,6 +3044,10 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public string jw_rv_vessel { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public string jw_vessel { get; set; }
     }
 
     /// <summary>
@@ -4872,6 +4896,10 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public DateTimeOffset? js_deliveryduedate { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int js_isbookingagentshipment { get; set; }
     }
 
     /// <summary>
@@ -5100,6 +5128,54 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public int oa_autoversion { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isaircto { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_iscontainerleasingcompany { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_iscontaineryard { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isdistributioncenter { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isferrywaterterminal { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isfumigationcontractor { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_ispackdepot { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_israilhead { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isroadfreightdepot { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isseacto { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isunpackdepot { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oa_isvgmcontractor { get; set; }
     }
 
     /// <summary>
@@ -5456,6 +5532,10 @@ namespace SntBackend.Application.Po.Dto
         /// 
         /// </summary>
         public string oh_systemcreatedepartment { get; set; }
+        /// <summary>
+        /// 
+        /// </summary>
+        public int oh_isvalidatedforwarder { get; set; }
     }
 
     /// <summary>

@@ -1034,7 +1034,13 @@ ORDER BY l.al_sequence
 
             if (!string.IsNullOrWhiteSpace(input?.SettleCompanyName))
             {
-                whereIf += " AND b.ab_bankname LIKE @bankName ";
+                whereIf += @" AND (
+                    b.ab_bankname LIKE @bankName
+                    OR b.ab_bankaccountname LIKE @bankName
+                    OR b.ab_code LIKE @bankName
+                    OR b.ab_accountnum LIKE @bankName
+                    OR b.ab_accountnumber LIKE @bankName
+                ) ";
                 dp.Add("bankName", $"{input.SettleCompanyName.Trim()}%");
             }
 

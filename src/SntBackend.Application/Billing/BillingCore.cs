@@ -5,6 +5,7 @@ using SntBackend.Application.Po.Dto;
 using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -30,6 +31,13 @@ namespace SntBackend.Application.Billing
     public class BillingCore : ITransientDependency
     {
         private readonly IAppSqlServerRepository _appSqlServerRepository;
+
+        private static string CurrentOrganizationLanguage()
+        {
+            return CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
+                ? "ZH-CN"
+                : "EN";
+        }
 
         public BillingCore(IAppSqlServerRepository appSqlServerRepository)
         {
@@ -217,6 +225,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             dp.Add("jhPks", jhPks);
             dp.Add("skipCount", skipCount);
             dp.Add("takeCount", maxResultCount);
+            dp.Add("organizationLanguage", CurrentOrganizationLanguage());
 
             var ledgerWhere = "";
             if (!string.IsNullOrWhiteSpace(chargeType))
@@ -243,10 +252,20 @@ FROM AccTransactionHeader ah
 ";
             var pageSql = $@"
 SELECT ah.*,
-       o.oh_fullname AS oh_fullname,
+       COALESCE(NULLIF(LTRIM(RTRIM(localized.OA_CompanyNameOverride)), ''), o.oh_fullname) AS oh_fullname,
 {AccTransactionHeaderSql.DisplayColumns("ah")}
 FROM AccTransactionHeader ah
 LEFT JOIN OrgHeader o ON o.OH_PK = ah.ah_oh
+OUTER APPLY (
+    SELECT TOP 1 oa.OA_CompanyNameOverride
+    FROM OrgAddress oa
+    WHERE oa.OA_OH = o.OH_PK
+      AND oa.OA_IsActive = 1
+      AND oa.OA_IsValid = 1
+      AND oa.OA_Language = @organizationLanguage
+      AND NULLIF(LTRIM(RTRIM(oa.OA_CompanyNameOverride)), '') IS NOT NULL
+    ORDER BY oa.OA_PK
+) localized
 {AccTransactionHeaderSql.DisplayJoins("ah")}
 {where}
 {orderBy}

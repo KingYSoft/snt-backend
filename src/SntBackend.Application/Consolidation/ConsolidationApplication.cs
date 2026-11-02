@@ -13,10 +13,14 @@ namespace SntBackend.Application.Consolidation
     public class ConsolidationApplication : SntBackendApplicationBase, IConsolidationApplication
     {
         private readonly IAppSqlServerRepository _appSqlServerRepository;
+        private readonly CurrentCompanyNameProvider _currentCompanyNameProvider;
 
-        public ConsolidationApplication(IAppSqlServerRepository appSqlServerRepository)
+        public ConsolidationApplication(
+            IAppSqlServerRepository appSqlServerRepository,
+            CurrentCompanyNameProvider currentCompanyNameProvider)
         {
             _appSqlServerRepository = appSqlServerRepository;
+            _currentCompanyNameProvider = currentCompanyNameProvider;
         }
 
         private static bool IsShipmentField(string key) => key.StartsWith("js_");
@@ -220,6 +224,11 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             input ??= new ConsolidationTblInput();
             var dp = new DynamicParameters();
             var whereIf = TblBuildWhere(input.filters ?? new List<ConsolidationTblFilterItem>(), dp, out var joinShipment);
+            if (input.selectedPks?.Count > 0)
+            {
+                whereIf += " AND t.jk_pk IN @selectedPks ";
+                dp.Add("selectedPks", input.selectedPks);
+            }
             var shipmentJoin = joinShipment
                 ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
                 : "";
@@ -343,7 +352,7 @@ OPTION (RECOMPILE)
             return SjcExcelExportHelper.Build(
                 "Consols",
                 string.IsNullOrWhiteSpace(input.exportTitle) ? "Consols" : input.exportTitle,
-                string.Empty,
+                await _currentCompanyNameProvider.GetAsync(),
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 headers,
                 rows,

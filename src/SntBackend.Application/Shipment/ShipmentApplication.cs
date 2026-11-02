@@ -14,10 +14,14 @@ namespace SntBackend.Application.Shipment
     public class ShipmentApplication : SntBackendApplicationBase, IShipmentApplication
     {
         private readonly IAppSqlServerRepository _appSqlServerRepository;
+        private readonly CurrentCompanyNameProvider _currentCompanyNameProvider;
 
-        public ShipmentApplication(IAppSqlServerRepository appSqlServerRepository)
+        public ShipmentApplication(
+            IAppSqlServerRepository appSqlServerRepository,
+            CurrentCompanyNameProvider currentCompanyNameProvider)
         {
             _appSqlServerRepository = appSqlServerRepository;
+            _currentCompanyNameProvider = currentCompanyNameProvider;
         }
 
         private static string TblBuildWhere(List<ShipmentTblFilterItem> filters, DynamicParameters dp)
@@ -43,6 +47,32 @@ namespace SntBackend.Application.Shipment
             {
                 if (string.IsNullOrWhiteSpace(item.key))
                 {
+                    continue;
+                }
+
+                if (string.Equals(item.key, "js_consolreference", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (item.op == "between")
+                    {
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(item.val))
+                    {
+                        continue;
+                    }
+
+                    var consolReference = $@"COALESCE(NULLIF(LTRIM(RTRIM(t.js_consolreference)), ''),
+    (SELECT TOP 1 NULLIF(LTRIM(RTRIM(c.jk_uniqueconsignref)), '')
+     FROM JobConShipLink l
+     INNER JOIN JobConsol c ON c.jk_pk = l.jn_jk
+     WHERE l.jn_js = t.js_pk
+       AND c.jk_iscancelled = 0
+     ORDER BY c.jk_pk))";
+                    var consolParam = $"@p{dp.ParameterNames.Count()}";
+                    var isContain = item.op == "Contain" || item.op == "Not Contain";
+                    parts.Add($" AND {consolReference} {MapOp(item.op)} {consolParam} ");
+                    dp.Add(consolParam, isContain ? $"%{item.val.Trim()}%" : item.val.Trim());
                     continue;
                 }
 
@@ -144,6 +174,7 @@ WITH PageShipments AS
 )
 SELECT t.*,
     consol.con_master_bill_num,
+    consol.linked_consol_reference,
     consol.con_vessel,
     consol.con_voyage,
     shipper.shipper_name,
@@ -160,6 +191,7 @@ FROM PageShipments t
 OUTER APPLY (
     SELECT TOP 1
         c.jk_masterbillnum AS con_master_bill_num,
+        c.jk_uniqueconsignref AS linked_consol_reference,
         ct.jw_vessel AS con_vessel,
         ct.jw_voyageflight AS con_voyage
     FROM JobConShipLink l
@@ -231,6 +263,13 @@ OUTER APPLY (
             {
                 var total = includeTotalCount ? await multi.ReadFirstAsync<int>() : 0;
                 var list = (await multi.ReadAsync<ShipmentTblRowOutput>()).ToList();
+                foreach (var item in list)
+                {
+                    if (string.IsNullOrWhiteSpace(item.js_consolreference))
+                    {
+                        item.js_consolreference = item.linked_consol_reference;
+                    }
+                }
 
                 output.TotalCount = total;
                 output.Items = list;
@@ -244,6 +283,11 @@ OUTER APPLY (
             input ??= new ShipmentTblInput();
             var dp = new DynamicParameters();
             var whereIf = TblBuildWhere(input.filters ?? new List<ShipmentTblFilterItem>(), dp);
+            if (input.selectedPks?.Count > 0)
+            {
+                whereIf += " AND t.js_pk IN @selectedPks ";
+                dp.Add("selectedPks", input.selectedPks);
+            }
             var sql = @$"
 WITH FilteredShipments AS
 (
@@ -316,6 +360,7 @@ WITH FilteredShipments AS
 )
 SELECT t.*,
     consol.con_master_bill_num,
+    consol.linked_consol_reference,
     consol.con_vessel,
     consol.con_voyage,
     shipper.shipper_name,
@@ -332,6 +377,7 @@ FROM FilteredShipments t
 OUTER APPLY (
     SELECT TOP 1
         c.jk_masterbillnum AS con_master_bill_num,
+        c.jk_uniqueconsignref AS linked_consol_reference,
         ct.jw_vessel AS con_vessel,
         ct.jw_voyageflight AS con_voyage
     FROM JobConShipLink l
@@ -439,7 +485,9 @@ OPTION (RECOMPILE)
                 ["js_packingmode"] = item => item.js_packingmode,
                 ["js_shipmentstatus"] = item => item.js_shipmentstatus,
                 ["js_uniqueconsignref"] = item => item.js_uniqueconsignref,
-                ["js_consolreference"] = item => item.js_consolreference,
+                ["js_consolreference"] = item => string.IsNullOrWhiteSpace(item.js_consolreference)
+                    ? item.linked_consol_reference
+                    : item.js_consolreference,
                 ["js_housebill"] = item => item.js_housebill,
                 ["con_master_bill_num"] = item => item.con_master_bill_num,
                 ["shipper_name"] = item => item.shipper_name,
@@ -481,7 +529,7 @@ OPTION (RECOMPILE)
             return SjcExcelExportHelper.Build(
                 "Shipments",
                 string.IsNullOrWhiteSpace(input.exportTitle) ? "Shipments" : input.exportTitle,
-                string.Empty,
+                await _currentCompanyNameProvider.GetAsync(),
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 headers,
                 rows,

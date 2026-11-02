@@ -2,6 +2,7 @@ using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Shipment;
 using SntBackend.Application.Shipment.Dto;
+using SntBackend.Application.Excel;
 using SntBackend.Web.Core.Controllers;
 using System.Threading.Tasks;
 using Facade.AspNetCore.Mvc.Authorization;
@@ -32,6 +33,15 @@ public class ShipmentController : SntBackendControllerBase
     {
         var result = await _shipmentApplication.Tbl(input);
         return new JsonResponse<ShipmentTblOutput> { Data = result };
+    }
+
+    [HttpPost]
+    [Route("export")]
+    [NoToken]
+    public async Task<IActionResult> Export([FromBody] ShipmentTblInput input)
+    {
+        var bytes = await _shipmentApplication.Export(input);
+        return File(bytes, SjcExcelExportHelper.ContentType, "Shipments.xlsx");
     }
 
     /// <summary>

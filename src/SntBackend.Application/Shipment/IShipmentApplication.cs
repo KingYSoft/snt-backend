@@ -6,6 +6,7 @@ namespace SntBackend.Application.Shipment
     public interface IShipmentApplication : ISntBackendApplicationBase
     {
         Task<ShipmentTblOutput> Tbl(ShipmentTblInput input);
+        Task<byte[]> Export(ShipmentTblInput input);
         Task<ShipmentDetailOutput> Detail(string id);
         Task<ShipmentQueryConsolTransportOutput> QueryConsolTransport(ShipmentQueryConsolTransportInput input);
     }

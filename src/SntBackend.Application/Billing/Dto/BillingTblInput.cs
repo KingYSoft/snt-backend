@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using SntBackend.Application.Excel;
 
 namespace SntBackend.Application.Billing.Dto
 {
@@ -9,6 +10,10 @@ namespace SntBackend.Application.Billing.Dto
         public List<BillingTblFilterItem> filters { get; set; } = new();
         public string job_number { get; set; }
         public string job_invoice_number { get; set; }
+        public List<ExportColumnInput> columns { get; set; } = new();
+        public string exportTitle { get; set; }
+        public string companyNameLabel { get; set; }
+        public string reportPeriodLabel { get; set; }
     }
 
     public class BillingTblFilterItem

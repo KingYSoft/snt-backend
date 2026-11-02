@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Billing;
 using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Billing.Dto.MatchTransaction;
+using SntBackend.Application.Excel;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Collections.Generic;
@@ -47,6 +48,24 @@ public class BillingController : SntBackendControllerBase
     {
         var result = await _billingApplication.ArTbl(input);
         return new JsonResponse<BillingTblOutput> { Data = result };
+    }
+
+    [HttpPost]
+    [Route("ap/export")]
+    [NoToken]
+    public async Task<IActionResult> ApExport([FromBody] BillingTblInput input)
+    {
+        var bytes = await _billingApplication.ExportAp(input);
+        return File(bytes, SjcExcelExportHelper.ContentType, "payable_transactions.xlsx");
+    }
+
+    [HttpPost]
+    [Route("ar/export")]
+    [NoToken]
+    public async Task<IActionResult> ArExport([FromBody] BillingTblInput input)
+    {
+        var bytes = await _billingApplication.ExportAr(input);
+        return File(bytes, SjcExcelExportHelper.ContentType, "receivable_transactions.xlsx");
     }
 
     /// <summary>

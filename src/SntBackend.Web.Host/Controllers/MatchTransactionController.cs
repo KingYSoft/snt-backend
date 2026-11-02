@@ -2,6 +2,7 @@ using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Billing;
 using SntBackend.Application.Billing.Dto.MatchTransaction;
+using SntBackend.Application.Excel;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Collections.Generic;
@@ -55,6 +56,14 @@ public class MatchTransactionController : SntBackendControllerBase
     {
         var result = await _billingApplication.QueryMatchTransactionPage(input);
         return new JsonResponse<MatchTransactionPageOutput> { Data = result };
+    }
+
+    [HttpPost]
+    [Route("export")]
+    public async Task<IActionResult> Export([FromBody] MatchTransactionPageInput input)
+    {
+        var bytes = await _billingApplication.ExportMatchTransactions(input);
+        return File(bytes, SjcExcelExportHelper.ContentType, "matching_transactions.xlsx");
     }
 
     /// <summary>

@@ -6,6 +6,6 @@ namespace SntBackend.Application.Shipment.Dto
     public class ShipmentTblOutput
     {
         public int TotalCount { get; set; }
-        public List<JobShipmentDtoOutput> Items { get; set; } = new();
+        public List<ShipmentTblRowOutput> Items { get; set; } = new();
     }
 }

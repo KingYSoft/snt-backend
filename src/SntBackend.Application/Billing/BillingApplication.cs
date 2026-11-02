@@ -1,5 +1,6 @@
 using Dapper;
 using Facade;
+using SntBackend.Application.Excel;
 using SntBackend.Application.Billing.Dto;
 using SntBackend.Application.Billing.Dto.MatchTransaction;
 using SntBackend.Application.Pdf;
@@ -288,6 +289,256 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
             return await GetPagedList("AR", input);
         }
 
+        public Task<byte[]> ExportAp(BillingTblInput input) => ExportBilling("AP", input, "Payable Transactions");
+
+        public Task<byte[]> ExportAr(BillingTblInput input) => ExportBilling("AR", input, "Receivable Transactions");
+
+        private async Task<byte[]> ExportBilling(string ledger, BillingTblInput input, string title)
+        {
+            input ??= new BillingTblInput();
+            var dp = new DynamicParameters();
+            dp.Add("ledger", ledger);
+            var filters = new List<BillingTblFilterItem>(input.filters ?? new List<BillingTblFilterItem>());
+            if (!string.IsNullOrWhiteSpace(input.job_number))
+            {
+                filters.Add(new BillingTblFilterItem
+                {
+                    key = "job_number",
+                    op = "Contain",
+                    val = input.job_number
+                });
+            }
+            if (!string.IsNullOrWhiteSpace(input.job_invoice_number))
+            {
+                filters.Add(new BillingTblFilterItem
+                {
+                    key = "job_invoice_number",
+                    op = "Contain",
+                    val = input.job_invoice_number
+                });
+            }
+            var hasCancelledFilter = filters.Any(item =>
+                string.Equals(item.key, "ah_iscancelled", StringComparison.OrdinalIgnoreCase));
+            var whereIf = TblBuildWhere(filters, dp);
+            if (!hasCancelledFilter)
+                whereIf += " AND ISNULL(t.ah_iscancelled, 0) = 0 ";
+
+            var sql = @$"
+SELECT
+    t.ah_invoicedate,
+    t.ah_ledger,
+    t.ah_transactiontype,
+    t.ah_consolidatedinvoiceref,
+    t.ah_chequeorreference,
+    t.ah_jobnumber,
+    t.ah_transactionnum,
+    t.ah_oh,
+    t.ah_desc,
+    t.ah_postdate,
+    t.ah_duedate,
+    t.ah_rx_nktransactioncurrency,
+    t.ah_ostotal,
+    t.ah_exchangerate,
+    t.ah_localtotal,
+    t.ah_systemcreatebranch,
+    t.ah_systemcreatedepartment,
+    t.ah_gstamount,
+    t.ah_outstandingamount,
+    t.ah_fullypaiddate,
+    t.ah_iscancelled,
+    o.oh_fullname,
+    {AccTransactionHeaderSql.DisplayColumns("t")}
+FROM AccTransactionHeader t
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+{AccTransactionHeaderSql.DisplayJoins("t")}
+WHERE t.ah_ledger = @ledger
+    {whereIf}
+ORDER BY t.ah_invoicedate DESC, t.ah_pk DESC
+OPTION (RECOMPILE)
+";
+            var items = (await _appSqlServerRepository.QueryAsync<AccTransactionHeaderDtoOutput>(sql, dp)).ToList();
+            await FillMissingJobNumbersAsync(items);
+            foreach (var item in items)
+            {
+                item.payment_status = BillingDataRules.IsFullyPaid(item.ah_outstandingamount)
+                    ? "PAID"
+                    : "UNPAID";
+            }
+            var defaults = new List<ExportColumnInput>
+            {
+                new() { key = "invoice_date", title = "Invoice Date" },
+                new() { key = "ledger", title = "Ledger" },
+                new() { key = "tran_type", title = "Type" },
+                new() { key = "job_invoice_number", title = "Job Invoice No." },
+                new() { key = "transaction_num", title = "Transaction No." },
+                new() { key = "creditor_debtor", title = "Settlement Party" },
+                new() { key = "creditor_debtor_full_name", title = "Settlement Party Full Name" },
+                new() { key = "invoice_description", title = "Invoice Description" },
+                new() { key = "post_date", title = "Post Date" },
+                new() { key = "due_date", title = "Due Date" },
+                new() { key = "currency", title = "Currency" },
+                new() { key = "trans_amount", title = "Transaction Amount" },
+                new() { key = "exchange_rate", title = "Exchange Rate" },
+                new() { key = "local_amount", title = "Local Amount" },
+                new() { key = "branch", title = "Branch" },
+                new() { key = "department", title = "Department" },
+                new() { key = "tax_amount", title = "Tax Amount" },
+                new() { key = "outstanding_amount", title = "Outstanding Amount" },
+                new() { key = "fully_paid_date", title = "Fully Paid Date" },
+                new() { key = "job_number", title = "Job No." },
+                new() { key = "canceled", title = "Canceled" }
+            };
+            var columns = SjcExcelExportHelper.ResolveColumns(input.columns, defaults);
+            var values = new Dictionary<string, Func<AccTransactionHeaderDtoOutput, object>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["invoice_date"] = item => item.ah_invoicedate,
+                ["ledger"] = item => item.ah_ledger,
+                ["tran_type"] = item => item.ah_transactiontype,
+                ["job_invoice_number"] = item => FirstNonBlank(item.ah_consolidatedinvoiceref, item.ah_chequeorreference, item.ah_jobnumber, item.ah_transactionnum),
+                ["transaction_num"] = item => item.ah_transactionnum,
+                ["creditor_debtor"] = item => item.ah_oh,
+                ["creditor_debtor_full_name"] = item => item.oh_fullname,
+                ["invoice_description"] = item => item.ah_desc,
+                ["post_date"] = item => item.ah_postdate,
+                ["due_date"] = item => item.ah_duedate,
+                ["currency"] = item => item.ah_rx_nktransactioncurrency,
+                ["trans_amount"] = item => item.ah_ostotal,
+                ["exchange_rate"] = item => item.ah_exchangerate,
+                ["local_amount"] = item => item.ah_localtotal,
+                ["branch"] = item => item.branch_code ?? item.ah_systemcreatebranch,
+                ["department"] = item => item.dept_code ?? item.ah_systemcreatedepartment,
+                ["tax_amount"] = item => item.ah_gstamount,
+                ["outstanding_amount"] = item => item.ah_outstandingamount,
+                ["fully_paid_date"] = item => item.ah_fullypaiddate,
+                ["job_number"] = item => item.ah_jobnumber,
+                ["canceled"] = item => item.ah_iscancelled == 1 ? "Y" : "N"
+            };
+            var headers = columns.Select(item => item.title).ToList();
+            var rows = items.Select(item => (IReadOnlyList<object>)columns
+                .Select(column => values.TryGetValue(column.key, out var getter) ? getter(item) : null)
+                .ToList()).ToList();
+            var numericColumns = new HashSet<int>(columns
+                .Select((column, index) => (column, index))
+                .Where(pair => pair.column.key is "trans_amount" or "exchange_rate" or "local_amount" or "tax_amount" or "outstanding_amount")
+                .Select(pair => pair.index));
+            return SjcExcelExportHelper.Build(
+                ledger == "AR" ? "Receivable" : "Payable",
+                string.IsNullOrWhiteSpace(input.exportTitle) ? title : input.exportTitle,
+                string.Empty,
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                headers,
+                rows,
+                numericColumns,
+                companyNameLabel: input.companyNameLabel,
+                reportPeriodLabel: input.reportPeriodLabel);
+        }
+
+        private static string FirstNonBlank(params string[] values)
+        {
+            return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+        }
+
+        private async Task FillMissingJobNumbersAsync(List<AccTransactionHeaderDtoOutput> items)
+        {
+            var missingPks = items
+                .Where(item => item != null
+                    && string.IsNullOrWhiteSpace(item.ah_jobnumber)
+                    && !string.IsNullOrWhiteSpace(item.ah_pk))
+                .Select(item => item.ah_pk)
+                .Distinct()
+                .ToList();
+
+            if (missingPks.Count == 0)
+                return;
+
+            var sql = @"
+WITH LineJobs AS
+(
+    SELECT DISTINCT al.al_ah, jh.jh_jobnum
+    FROM AccTransactionLines al
+    INNER JOIN JobHeader jh ON jh.jh_pk = al.al_jh
+    WHERE al.al_ah IN @ahPks
+      AND NULLIF(LTRIM(RTRIM(jh.jh_jobnum)), '') IS NOT NULL
+)
+SELECT al_ah AS AhPk,
+       STRING_AGG(jh_jobnum, ',') AS JobNumber
+FROM LineJobs
+GROUP BY al_ah
+";
+
+            var rows = await _appSqlServerRepository.QueryAsync<(string AhPk, string JobNumber)>(
+                sql,
+                new { ahPks = missingPks });
+            var jobMap = rows
+                .Where(row => !string.IsNullOrWhiteSpace(row.AhPk) && !string.IsNullOrWhiteSpace(row.JobNumber))
+                .ToDictionary(row => row.AhPk, row => row.JobNumber);
+
+            foreach (var item in items)
+            {
+                if (item != null
+                    && string.IsNullOrWhiteSpace(item.ah_jobnumber)
+                    && !string.IsNullOrWhiteSpace(item.ah_pk)
+                    && jobMap.TryGetValue(item.ah_pk, out var jobNumber))
+                {
+                    item.ah_jobnumber = jobNumber;
+                }
+            }
+        }
+
+        private static string BuildMatchTransactionDateFilters(MatchTransactionPageInput input, DynamicParameters dp)
+        {
+            var whereIf = string.Empty;
+            if (!string.IsNullOrWhiteSpace(input.EtdStart) || !string.IsNullOrWhiteSpace(input.EtdEnd))
+            {
+                whereIf += @"
+    AND EXISTS (
+        SELECT 1
+        FROM JobHeader jh
+        LEFT JOIN JobShipment js
+            ON js.js_pk = jh.jh_parentid
+           AND jh.jh_parenttablecode = 'JS'
+        LEFT JOIN JobConsol jk
+            ON jk.jk_pk = jh.jh_parentid
+           AND jh.jh_parenttablecode = 'JK'
+        WHERE jh.jh_pk = t.ah_jh
+          AND (
+              (jh.jh_parenttablecode = 'JS'
+               AND js.js_e_dep IS NOT NULL
+               AND (@etdStart IS NULL OR js.js_e_dep >= @etdStart)
+               AND (@etdEnd IS NULL OR js.js_e_dep < DATEADD(day, 1, @etdEnd)))
+              OR
+              (jh.jh_parenttablecode = 'JK'
+               AND EXISTS (
+                   SELECT 1
+                   FROM JobConsolTransport ct
+                   WHERE ct.jw_parentguid = jk.jk_pk
+                     AND ct.jw_parenttype = 'CON'
+                     AND ct.jw_isvalid = 1
+                     AND ct.jw_etd IS NOT NULL
+                     AND (@etdStart IS NULL OR ct.jw_etd >= @etdStart)
+                     AND (@etdEnd IS NULL OR ct.jw_etd < DATEADD(day, 1, @etdEnd))
+               ))
+          )
+    )
+    ";
+                dp.Add("etdStart", string.IsNullOrWhiteSpace(input.EtdStart) ? null : input.EtdStart);
+                dp.Add("etdEnd", string.IsNullOrWhiteSpace(input.EtdEnd) ? null : input.EtdEnd);
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.PaymentDateStart))
+            {
+                whereIf += " AND t.ah_invoicedate >= @paymentDateStart ";
+                dp.Add("paymentDateStart", input.PaymentDateStart);
+            }
+            if (!string.IsNullOrWhiteSpace(input.PaymentDateEnd))
+            {
+                whereIf += " AND t.ah_invoicedate < DATEADD(day, 1, @paymentDateEnd) ";
+                dp.Add("paymentDateEnd", input.PaymentDateEnd);
+            }
+
+            return whereIf;
+        }
+
         private async Task<BillingTblOutput> GetPagedList(string ledger, BillingTblInput input)
         {
             var output = new BillingTblOutput();
@@ -354,6 +605,7 @@ OPTION (RECOMPILE)
             {
                 var total = await multi.ReadFirstAsync<int>();
                 var list = (await multi.ReadAsync<AccTransactionHeaderDtoOutput>()).ToList();
+                await FillMissingJobNumbersAsync(list);
 
                 foreach (var item in list)
                 {
@@ -967,6 +1219,14 @@ FROM MatchedHeaders;
                 dp.Add("matchNumber", $"%{input.MatchNumber}%");
             }
 
+            if (!string.IsNullOrWhiteSpace(input.Description))
+            {
+                whereIf += " AND t.ah_desc LIKE @description ";
+                dp.Add("description", $"%{input.Description}%");
+            }
+
+            whereIf += BuildMatchTransactionDateFilters(input, dp);
+
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
 
@@ -1011,6 +1271,133 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
             }
 
             return output;
+        }
+
+        public async Task<byte[]> ExportMatchTransactions(MatchTransactionPageInput input)
+        {
+            input ??= new MatchTransactionPageInput();
+            var dp = new DynamicParameters();
+            var jobMatchSetup = "";
+            var jobMatchJoin = "";
+            var whereIf = @"
+                AND EXISTS (
+                    SELECT 1
+                    FROM AccTransactionMatchLink m
+                    WHERE m.ap_ah = t.ah_pk
+                ) ";
+
+            if (!string.IsNullOrWhiteSpace(input.Shipper))
+            {
+                whereIf += " AND t.ah_oh = @shipper ";
+                dp.Add("shipper", input.Shipper);
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.JobNumber))
+            {
+                jobMatchSetup = @"
+;WITH JobScope AS (
+    SELECT jh_pk
+    FROM JobHeader
+    WHERE jh_jobnum LIKE @jobNumber
+), MatchedHeaders AS (
+    SELECT t.ah_pk
+    FROM AccTransactionHeader t
+    INNER JOIN JobScope js ON js.jh_pk = t.ah_jh
+    UNION
+    SELECT l.al_ah
+    FROM AccTransactionLines l
+    INNER JOIN JobScope js ON js.jh_pk = l.al_jh
+    UNION
+    SELECT t.ah_pk
+    FROM AccTransactionHeader t
+    WHERE t.ah_jobnumber LIKE @jobNumber
+)
+SELECT DISTINCT ah_pk INTO #MatchedJobHeaders
+FROM MatchedHeaders;
+";
+                jobMatchJoin = " INNER JOIN #MatchedJobHeaders jobMatch ON jobMatch.ah_pk = t.ah_pk ";
+                dp.Add("jobNumber", $"%{input.JobNumber}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.MatchNumber))
+            {
+                whereIf += " AND t.ah_transactionnum LIKE @matchNumber ";
+                dp.Add("matchNumber", $"%{input.MatchNumber}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.Description))
+            {
+                whereIf += " AND t.ah_desc LIKE @description ";
+                dp.Add("description", $"%{input.Description}%");
+            }
+
+            whereIf += BuildMatchTransactionDateFilters(input, dp);
+
+            var sql = @$"
+{jobMatchSetup}
+SELECT
+    t.ah_pk AS Pk,
+    t.ah_ledger AS Ledger,
+    t.ah_transactionnum AS MatchNumber,
+    t.ah_oh AS BillingParty,
+    o.oh_fullname AS BillingPartyName,
+    t.ah_jobnumber AS JobNumber,
+    t.ah_rx_nktransactioncurrency AS Currency,
+    t.ah_ostotal AS SettledAmount,
+    CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
+    t.ah_desc AS Description
+FROM AccTransactionHeader t
+{jobMatchJoin}
+LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+WHERE t.ah_iscancelled = 0
+    AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
+    {whereIf}
+ORDER BY t.ah_invoicedate DESC, t.ah_pk DESC
+OPTION (RECOMPILE)
+";
+            var items = (await _appSqlServerRepository.QueryAsync<MatchTransactionPageItem>(sql, dp)).ToList();
+            var defaults = new List<ExportColumnInput>
+            {
+                new() { key = "index", title = "#" },
+                new() { key = "ledger", title = "Ledger" },
+                new() { key = "matchNumber", title = "Transaction No." },
+                new() { key = "billingParty", title = "Company" },
+                new() { key = "currency", title = "Currency" },
+                new() { key = "settledAmount", title = "Amount" },
+                new() { key = "paymentDate", title = "Payment Date" },
+                new() { key = "description", title = "Description" }
+            };
+            var columns = SjcExcelExportHelper.ResolveColumns(input.Columns, defaults);
+            var headers = columns.Select(item => item.title).ToList();
+            var rows = items.Select((item, index) =>
+            {
+                var values = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["index"] = index + 1,
+                    ["ledger"] = item.Ledger,
+                    ["matchNumber"] = item.MatchNumber,
+                    ["billingParty"] = string.IsNullOrWhiteSpace(item.BillingPartyName) ? item.BillingParty : item.BillingPartyName,
+                    ["currency"] = item.Currency,
+                    ["settledAmount"] = item.SettledAmount,
+                    ["paymentDate"] = item.PaymentDate,
+                    ["description"] = item.Description
+                };
+                return (IReadOnlyList<object>)columns.Select(column => values.TryGetValue(column.key, out var value) ? value : null).ToList();
+            }).ToList();
+            var numericColumns = new HashSet<int>(columns
+                .Select((column, index) => (column, index))
+                .Where(pair => pair.column.key is "index" or "settledAmount")
+                .Select(pair => pair.index));
+            return SjcExcelExportHelper.Build(
+                "Matching Transactions",
+                string.IsNullOrWhiteSpace(input.ExportTitle) ? "Matching Transactions" : input.ExportTitle,
+                string.Empty,
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                headers,
+                rows,
+                numericColumns,
+                companyNameLabel: input.CompanyNameLabel,
+                reportPeriodLabel: input.ReportPeriodLabel);
         }
 
         public async Task<List<AccTransactionLinesDtoOutput>> QueryMatchTransactionLines(MatchTransactionLinesInput input)

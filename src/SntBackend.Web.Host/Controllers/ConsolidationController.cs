@@ -2,6 +2,7 @@ using Facade.Core.Web;
 using Microsoft.AspNetCore.Mvc;
 using SntBackend.Application.Consolidation;
 using SntBackend.Application.Consolidation.Dto;
+using SntBackend.Application.Excel;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Web.Core.Controllers;
 using System.Threading.Tasks;
@@ -35,14 +36,14 @@ public class ConsolidationController : SntBackendControllerBase
     }
 
     /// <summary>
-    /// 导出CSV
+    /// 导出 Excel
     /// </summary>
     [HttpPost]
     [Route("export")]
     public async Task<IActionResult> Export([FromBody] ConsolidationTblInput input)
     {
         var bytes = await _consolidationApplication.Export(input);
-        return File(bytes, "text/csv", "consolidation_export.csv");
+        return File(bytes, SjcExcelExportHelper.ContentType, "Consols.xlsx");
     }
 
     /// <summary>

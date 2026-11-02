@@ -10,6 +10,8 @@ namespace SntBackend.Application.Billing
     {
         Task<BillingTblOutput> ApTbl(BillingTblInput input);
         Task<BillingTblOutput> ArTbl(BillingTblInput input);
+        Task<byte[]> ExportAp(BillingTblInput input);
+        Task<byte[]> ExportAr(BillingTblInput input);
         Task<AccTransactionHeaderDtoOutput> Detail(string id);
         Task<WriteOffTblOutput> WriteOffTbl(WriteOffTblInput input);
         Task<WriteOffDetailOutput> WriteOffDetail(WriteOffDetailInput input);
@@ -17,6 +19,7 @@ namespace SntBackend.Application.Billing
         Task<OutstandingInvoiceOutput> QueryOutstandingInvoices(OutstandingInvoiceInput input);
         Task<SaveMatchWriteOffOutput> SaveMatchWriteOff(SaveMatchWriteOffInput input);
         Task<MatchTransactionPageOutput> QueryMatchTransactionPage(MatchTransactionPageInput input);
+        Task<byte[]> ExportMatchTransactions(MatchTransactionPageInput input);
         Task<List<AccTransactionLinesDtoOutput>> QueryMatchTransactionLines(MatchTransactionLinesInput input);
         Task<MatchTransactionDetailOutput> MatchTransactionDetail(string pk, string jobNumber = null);
         Task<List<AccBankAccountDtoOutput>> QueryWriteOffBank(WriteOffBankInput input);

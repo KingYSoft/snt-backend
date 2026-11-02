@@ -1,12 +1,11 @@
 using Dapper;
 using SntBackend.Application.Consolidation.Dto;
+using SntBackend.Application.Excel;
 using SntBackend.Application.Po.Dto;
 using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace SntBackend.Application.Consolidation
@@ -33,9 +32,10 @@ namespace SntBackend.Application.Consolidation
         /// 使用现有的 jk_consolchargeable 字段承载展示兜底值，避免为查询结果
         /// 增加新的 DTO 字段。仅对主表值为 0 的合单按关联运单汇总。
         /// </summary>
-        private async Task FillChargeableFallbackAsync(List<JobConsolDtoOutput> items)
+        private async Task FillChargeableFallbackAsync(IEnumerable<JobConsolDtoOutput> items)
         {
-            var pending = items
+            var itemList = items.ToList();
+            var pending = itemList
                 .Where(x => x.jk_consolchargeable == 0 && !string.IsNullOrWhiteSpace(x.jk_pk))
                 .Select(x => x.jk_pk)
                 .Distinct()
@@ -51,7 +51,7 @@ WHERE l.jn_jk IN @jkPks
 GROUP BY l.jn_jk", new { jkPks = pending });
 
             var values = rows.ToDictionary(x => x.jk_pk, x => x.chargeable, StringComparer.OrdinalIgnoreCase);
-            foreach (var item in items)
+            foreach (var item in itemList)
             {
                 if (item.jk_consolchargeable == 0 && values.TryGetValue(item.jk_pk, out var chargeable))
                     item.jk_consolchargeable = chargeable;
@@ -148,9 +148,48 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT {distinct} t.*
+SELECT {distinct} t.*,
+    transport.con_etd,
+    transport.con_eta,
+    transport.con_vessel,
+    transport.con_voyage,
+    transport.con_carrier_name,
+    containers.ctr_type,
+    containers.ctr_count
 FROM JobConsol t
 {shipmentJoin}
+OUTER APPLY (
+    SELECT TOP 1
+        ct.jw_etd AS con_etd,
+        ct.jw_eta AS con_eta,
+        ct.jw_vessel AS con_vessel,
+        ct.jw_voyageflight AS con_voyage,
+        carrier.oh_fullname AS con_carrier_name
+    FROM JobConsolTransport ct
+    LEFT JOIN OrgAddress carrier_oa ON carrier_oa.oa_pk = ct.jw_oa_carrieraddress
+    LEFT JOIN OrgHeader carrier ON carrier.oh_pk = carrier_oa.oa_oh
+    WHERE ct.jw_parentguid = t.jk_pk
+      AND ct.jw_parenttype = 'CON'
+      AND ct.jw_isvalid = 1
+    ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
+             ct.jw_legorder,
+             ct.jw_pk
+) transport
+OUTER APPLY (
+    SELECT
+        STUFF((
+            SELECT DISTINCT ',' + NULLIF(RTRIM(rc.RC_Code), '')
+            FROM JobContainer jc
+            LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
+            WHERE jc.jc_jk = t.jk_pk
+              AND jc.jc_isvalid = 0
+              AND NULLIF(RTRIM(rc.RC_Code), '') IS NOT NULL
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ctr_type,
+        (SELECT SUM(ISNULL(jc.jc_containercount, 1))
+         FROM JobContainer jc
+         WHERE jc.jc_jk = t.jk_pk
+           AND jc.jc_isvalid = 0) AS ctr_count
+) containers
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
@@ -166,7 +205,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ", dp))
             {
                 var total = await multi.ReadFirstAsync<int>();
-                var list = (await multi.ReadAsync<JobConsolDtoOutput>()).ToList();
+                var list = (await multi.ReadAsync<ConsolidationTblRowOutput>()).ToList();
                 await FillChargeableFallbackAsync(list);
 
                 output.TotalCount = total;
@@ -178,48 +217,139 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 
         public async Task<byte[]> Export(ConsolidationTblInput input)
         {
+            input ??= new ConsolidationTblInput();
             var dp = new DynamicParameters();
-            var whereIf = TblBuildWhere(input.filters, dp, out var joinShipment);
-
+            var whereIf = TblBuildWhere(input.filters ?? new List<ConsolidationTblFilterItem>(), dp, out var joinShipment);
             var shipmentJoin = joinShipment
                 ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
                 : "";
             var distinct = joinShipment ? "DISTINCT" : "";
-
             var sql = @$"
-SELECT {distinct} t.*
+SELECT {distinct}
+    t.jk_pk,
+    t.jk_transportmode,
+    t.jk_consolmode,
+    t.jk_uniqueconsignref,
+    t.jk_masterbillnum,
+    t.jk_rl_nkloadport,
+    t.jk_rl_nkdischargeport,
+    t.jk_shippedonboarddate,
+    t.jk_systemcreateuser,
+    t.jk_systemlastedituser,
+    t.jk_phase,
+    t.jk_consolchargeable,
+    t.jk_iscancelled,
+    transport.con_etd,
+    transport.con_eta,
+    transport.con_vessel,
+    transport.con_voyage,
+    transport.con_carrier_name,
+    containers.ctr_type,
+    containers.ctr_count
 FROM JobConsol t
 {shipmentJoin}
-WHERE 1 = 1
-    AND t.jk_iscancelled = 0
+OUTER APPLY (
+    SELECT TOP 1
+        ct.jw_etd AS con_etd,
+        ct.jw_eta AS con_eta,
+        ct.jw_vessel AS con_vessel,
+        ct.jw_voyageflight AS con_voyage,
+        carrier.oh_fullname AS con_carrier_name
+    FROM JobConsolTransport ct
+    LEFT JOIN OrgAddress carrier_oa ON carrier_oa.oa_pk = ct.jw_oa_carrieraddress
+    LEFT JOIN OrgHeader carrier ON carrier.oh_pk = carrier_oa.oa_oh
+    WHERE ct.jw_parentguid = t.jk_pk
+      AND ct.jw_parenttype = 'CON'
+      AND ct.jw_isvalid = 1
+    ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
+             ct.jw_legorder,
+             ct.jw_pk
+) transport
+OUTER APPLY (
+    SELECT
+        STUFF((
+            SELECT DISTINCT ',' + NULLIF(RTRIM(rc.RC_Code), '')
+            FROM JobContainer jc
+            LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
+            WHERE jc.jc_jk = t.jk_pk
+              AND jc.jc_isvalid = 0
+              AND NULLIF(RTRIM(rc.RC_Code), '') IS NOT NULL
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ctr_type,
+        (SELECT SUM(ISNULL(jc.jc_containercount, 1))
+         FROM JobContainer jc
+         WHERE jc.jc_jk = t.jk_pk
+           AND jc.jc_isvalid = 0) AS ctr_count
+) containers
+WHERE t.jk_iscancelled = 0
     {whereIf}
-ORDER BY t.jk_pk desc
+ORDER BY t.jk_pk DESC
+OPTION (RECOMPILE)
 ";
-            var list = (await _appSqlServerRepository.QueryAsync<JobConsolDtoOutput>(sql, dp)).ToList();
-            await FillChargeableFallbackAsync(list);
-
-            var props = typeof(JobConsolDtoOutput).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            var sb = new StringBuilder();
-
-            // header
-            sb.AppendLine(string.Join(",", props.Select(p => p.Name)));
-
-            // rows
-            foreach (var item in list)
+            var items = (await _appSqlServerRepository.QueryAsync<ConsolidationTblRowOutput>(sql, dp)).ToList();
+            await FillChargeableFallbackAsync(items);
+            var defaults = new List<ExportColumnInput>
             {
-                var values = props.Select(p =>
-                {
-                    var val = p.GetValue(item);
-                    if (val == null) return "";
-                    var str = val is DateTime dt ? dt.ToString("yyyy-MM-dd HH:mm:ss") : val.ToString();
-                    return str.Contains(',') || str.Contains('"') || str.Contains('\n')
-                        ? $"\"{str.Replace("\"", "\"\"")}\""
-                        : str;
-                });
-                sb.AppendLine(string.Join(",", values));
-            }
-
-            return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+                new() { key = "jk_transportmode", title = "Trans Mode" },
+                new() { key = "jk_consolmode", title = "Container Mode" },
+                new() { key = "jk_uniqueconsignref", title = "Consol No." },
+                new() { key = "jk_masterbillnum", title = "Master No." },
+                new() { key = "jk_rl_nkloadport", title = "Load Port" },
+                new() { key = "jk_rl_nkdischargeport", title = "Discharge Port" },
+                new() { key = "con_etd", title = "ETD" },
+                new() { key = "con_eta", title = "ETA" },
+                new() { key = "con_vessel", title = "Vessel" },
+                new() { key = "con_voyage", title = "Voyage" },
+                new() { key = "con_carrier_name", title = "Carrier" },
+                new() { key = "ctr_type", title = "Ctr Type" },
+                new() { key = "ctr_count", title = "Ctr Count" },
+                new() { key = "jk_shippedonboarddate", title = "On Board Date" },
+                new() { key = "jk_systemcreateuser", title = "Create User" },
+                new() { key = "jk_systemlastedituser", title = "Modify User" },
+                new() { key = "jk_phase", title = "Phase" },
+                new() { key = "jk_consolchargeable", title = "Consol Chargeable" },
+                new() { key = "jk_iscancelled", title = "Cancelled" }
+            };
+            var columns = SjcExcelExportHelper.ResolveColumns(input.columns, defaults);
+            var values = new Dictionary<string, Func<ConsolidationTblRowOutput, object>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["jk_transportmode"] = item => item.jk_transportmode,
+                ["jk_consolmode"] = item => item.jk_consolmode,
+                ["jk_uniqueconsignref"] = item => item.jk_uniqueconsignref,
+                ["jk_masterbillnum"] = item => item.jk_masterbillnum,
+                ["jk_rl_nkloadport"] = item => item.jk_rl_nkloadport,
+                ["jk_rl_nkdischargeport"] = item => item.jk_rl_nkdischargeport,
+                ["con_etd"] = item => item.con_etd,
+                ["con_eta"] = item => item.con_eta,
+                ["con_vessel"] = item => item.con_vessel,
+                ["con_voyage"] = item => item.con_voyage,
+                ["con_carrier_name"] = item => item.con_carrier_name,
+                ["ctr_type"] = item => item.ctr_type,
+                ["ctr_count"] = item => item.ctr_count,
+                ["jk_shippedonboarddate"] = item => item.jk_shippedonboarddate,
+                ["jk_systemcreateuser"] = item => item.jk_systemcreateuser,
+                ["jk_systemlastedituser"] = item => item.jk_systemlastedituser,
+                ["jk_phase"] = item => item.jk_phase,
+                ["jk_consolchargeable"] = item => item.jk_consolchargeable,
+                ["jk_iscancelled"] = item => item.jk_iscancelled == 1 ? "Y" : "N"
+            };
+            var headers = columns.Select(item => item.title).ToList();
+            var rows = items.Select(item => (IReadOnlyList<object>)columns
+                .Select(column => values.TryGetValue(column.key, out var getter) ? getter(item) : null)
+                .ToList()).ToList();
+            var numericColumns = new HashSet<int>(columns
+                .Select((column, index) => (column, index))
+                .Where(pair => pair.column.key is "ctr_count" or "jk_consolchargeable")
+                .Select(pair => pair.index));
+            return SjcExcelExportHelper.Build(
+                "Consols",
+                string.IsNullOrWhiteSpace(input.exportTitle) ? "Consols" : input.exportTitle,
+                string.Empty,
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                headers,
+                rows,
+                numericColumns,
+                companyNameLabel: input.companyNameLabel,
+                reportPeriodLabel: input.reportPeriodLabel);
         }
 
         public async Task<ConsolidationDetailOutput> Detail(string id)

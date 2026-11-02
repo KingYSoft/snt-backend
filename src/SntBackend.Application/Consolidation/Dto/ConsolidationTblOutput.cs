@@ -6,6 +6,6 @@ namespace SntBackend.Application.Consolidation.Dto
     public class ConsolidationTblOutput
     {
         public int TotalCount { get; set; }
-        public List<JobConsolDtoOutput> Items { get; set; } = new();
+        public List<ConsolidationTblRowOutput> Items { get; set; } = new();
     }
 }

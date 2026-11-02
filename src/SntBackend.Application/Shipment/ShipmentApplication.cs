@@ -1,6 +1,7 @@
 using Dapper;
 using SntBackend.Application.Po.Dto;
 using SntBackend.Application.Shipment.Dto;
+using SntBackend.Application.Excel;
 using SntBackend.DomainService.Share.App;
 using System;
 using System.Collections.Generic;
@@ -77,7 +78,12 @@ namespace SntBackend.Application.Shipment
             return string.Join(" ", parts);
         }
 
-        public async Task<ShipmentTblOutput> Tbl(ShipmentTblInput input)
+        public Task<ShipmentTblOutput> Tbl(ShipmentTblInput input)
+        {
+            return TblInternal(input ?? new ShipmentTblInput(), true);
+        }
+
+        private async Task<ShipmentTblOutput> TblInternal(ShipmentTblInput input, bool includeTotalCount)
         {
             var output = new ShipmentTblOutput();
             var dp = new DynamicParameters();
@@ -91,30 +97,397 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT t.*
-FROM JobShipment t
-WHERE 1 = 1
-    AND t.js_iscancelled = 0 
-    {whereIf}
-ORDER BY t.js_pk desc
-OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+WITH PageShipments AS
+(
+    SELECT t.*
+    FROM JobShipment t
+    WHERE 1 = 1
+        AND t.js_iscancelled = 0
+        {whereIf}
+    ORDER BY t.js_pk DESC
+    OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+), CandidateContainers AS
+(
+    SELECT p.js_pk, jc.jc_pk
+    FROM PageShipments p
+    INNER JOIN JobContainer jc
+        ON jc.jc_js_fclbookingonlylink = p.js_pk
+       AND jc.jc_isvalid = 0
+
+    UNION
+
+    SELECT p.js_pk, piv.J6_JC
+    FROM PageShipments p
+    INNER JOIN JobPackLines jl ON jl.jl_js = p.js_pk
+    INNER JOIN JobContainerPackPivot piv ON piv.J6_JL = jl.jl_pk
+
+    UNION
+
+    SELECT p.js_pk, jc.jc_pk
+    FROM PageShipments p
+    INNER JOIN JobConShipLink link ON link.jn_js = p.js_pk
+    INNER JOIN JobContainer jc
+        ON jc.jc_jk = link.jn_jk
+       AND jc.jc_isvalid = 0
+), ContainerAggregate AS
+(
+    SELECT cc.js_pk,
+        MAX(RTRIM(rc.RC_Code)) AS pac_container_type,
+        SUM(ISNULL(jc.jc_containercount, 1)) AS pac_container_count,
+        STRING_AGG(CONVERT(VARCHAR(MAX), NULLIF(RTRIM(jc.jc_containernum), '')), ',') AS pac_container_num
+    FROM CandidateContainers cc
+    INNER JOIN JobContainer jc
+        ON jc.jc_pk = cc.jc_pk
+       AND jc.jc_isvalid = 0
+    LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
+    GROUP BY cc.js_pk
+)
+SELECT t.*,
+    consol.con_master_bill_num,
+    consol.con_vessel,
+    consol.con_voyage,
+    shipper.shipper_name,
+    consignee.consignee_name,
+    cargo.shp_cargo_ready,
+    t.js_hblawbchargesdisplay AS shp_freight_terms,
+    t.js_hblcontainerpackmodeoverride AS shp_delivery_mode,
+    carrier.carrier_name,
+    containers.pac_container_type,
+    containers.pac_container_count,
+    containers.pac_container_num,
+    sales.shp_job_rep_sales_name
+FROM PageShipments t
+OUTER APPLY (
+    SELECT TOP 1
+        c.jk_masterbillnum AS con_master_bill_num,
+        ct.jw_vessel AS con_vessel,
+        ct.jw_voyageflight AS con_voyage
+    FROM JobConShipLink l
+    INNER JOIN JobConsol c ON c.jk_pk = l.jn_jk
+    LEFT JOIN JobConsolTransport ct
+        ON ct.jw_parentguid = c.jk_pk
+       AND ct.jw_parenttype = 'CON'
+       AND ct.jw_isvalid = 1
+    WHERE l.jn_js = t.js_pk
+      AND c.jk_iscancelled = 0
+    ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
+             ct.jw_legorder,
+             c.jk_pk
+) consol
+OUTER APPLY (
+    SELECT TOP 1
+        COALESCE(oh.oh_fullname, d.e2_companyname) AS shipper_name
+    FROM JobDocAddress d
+    LEFT JOIN OrgAddress oa ON oa.oa_pk = d.e2_oa_address
+    LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+    WHERE d.e2_parentid = t.js_pk
+      AND d.e2_parenttablecode = 'JS'
+      AND d.e2_addresstype = 'CRD'
+    ORDER BY d.e2_pk
+) shipper
+OUTER APPLY (
+    SELECT TOP 1
+        COALESCE(oh.oh_fullname, d.e2_companyname) AS consignee_name
+    FROM JobDocAddress d
+    LEFT JOIN OrgAddress oa ON oa.oa_pk = d.e2_oa_address
+    LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+    WHERE d.e2_parentid = t.js_pk
+      AND d.e2_parenttablecode = 'JS'
+      AND d.e2_addresstype = 'CEG'
+    ORDER BY d.e2_pk
+) consignee
+OUTER APPLY (
+    SELECT TOP 1 v.XV_Data AS shp_cargo_ready
+    FROM GenCustomAddOnValue v
+    WHERE v.Xv_ParentID = t.js_pk
+      AND v.XV_Name = 'Cargo Ready Date'
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+) cargo
+OUTER APPLY (
+    SELECT TOP 1 oh.oh_fullname AS carrier_name
+    FROM OrgAddress oa
+    LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+    WHERE oa.oa_pk = t.js_oa_bookedshippinglineaddress
+) carrier
+LEFT JOIN ContainerAggregate containers ON containers.js_pk = t.js_pk
+OUTER APPLY (
+    SELECT TOP 1 gs.GS_FullName AS shp_job_rep_sales_name
+    FROM JobHeader jh
+    LEFT JOIN GlbStaff gs
+        ON gs.GS_Code = jh.jh_gs_nkrepsales
+    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.js_pk)
+      AND jh.jh_parenttablecode = 'JS'
+    ORDER BY jh.jh_pk
+) sales
 ";
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
 
-            using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
+            var query = includeTotalCount ? $@"
 {totalSql};
 {pageSql}
-", dp))
+" : pageSql;
+            using (var multi = await _appSqlServerRepository.QueryMultipleAsync(query, dp))
             {
-                var total = await multi.ReadFirstAsync<int>();
-                var list = (await multi.ReadAsync<JobShipmentDtoOutput>()).ToList();
+                var total = includeTotalCount ? await multi.ReadFirstAsync<int>() : 0;
+                var list = (await multi.ReadAsync<ShipmentTblRowOutput>()).ToList();
 
                 output.TotalCount = total;
                 output.Items = list;
             }
 
             return output;
+        }
+
+        public async Task<byte[]> Export(ShipmentTblInput input)
+        {
+            input ??= new ShipmentTblInput();
+            var dp = new DynamicParameters();
+            var whereIf = TblBuildWhere(input.filters ?? new List<ShipmentTblFilterItem>(), dp);
+            var sql = @$"
+WITH FilteredShipments AS
+(
+    SELECT
+        t.js_pk,
+        t.js_transportmode,
+        t.js_packingmode,
+        t.js_shipmentstatus,
+        t.js_uniqueconsignref,
+        t.js_consolreference,
+        t.js_housebill,
+        t.js_rl_nkorigin,
+        t.js_rl_nkdestination,
+        t.js_e_dep,
+        t.js_e_arv,
+        t.js_shippedonboarddate,
+        t.js_actualweight,
+        t.js_actualvolume,
+        t.js_actualchargeable,
+        t.js_outerpacks,
+        t.js_f3_nkpacktype,
+        t.js_goodsdescription,
+        t.js_unitofweight,
+        t.js_unitofvolume,
+        t.js_hblawbchargesdisplay,
+        t.js_inco,
+        t.js_hblcontainerpackmodeoverride,
+        t.js_releasetype,
+        t.js_oa_bookedshippinglineaddress,
+        t.js_systemcreateuser,
+        t.js_systemlastedituser
+    FROM JobShipment t
+    WHERE t.js_iscancelled = 0
+        {whereIf}
+), CandidateContainers AS
+(
+    SELECT p.js_pk, jc.jc_pk
+    FROM FilteredShipments p
+    INNER JOIN JobContainer jc
+        ON jc.jc_js_fclbookingonlylink = p.js_pk
+       AND jc.jc_isvalid = 0
+
+    UNION
+
+    SELECT p.js_pk, piv.J6_JC
+    FROM FilteredShipments p
+    INNER JOIN JobPackLines jl ON jl.jl_js = p.js_pk
+    INNER JOIN JobContainerPackPivot piv ON piv.J6_JL = jl.jl_pk
+
+    UNION
+
+    SELECT p.js_pk, jc.jc_pk
+    FROM FilteredShipments p
+    INNER JOIN JobConShipLink link ON link.jn_js = p.js_pk
+    INNER JOIN JobContainer jc
+        ON jc.jc_jk = link.jn_jk
+       AND jc.jc_isvalid = 0
+), ContainerAggregate AS
+(
+    SELECT cc.js_pk,
+        MAX(RTRIM(rc.RC_Code)) AS pac_container_type,
+        SUM(ISNULL(jc.jc_containercount, 1)) AS pac_container_count,
+        STRING_AGG(CONVERT(VARCHAR(MAX), NULLIF(RTRIM(jc.jc_containernum), '')), ',') AS pac_container_num
+    FROM CandidateContainers cc
+    INNER JOIN JobContainer jc
+        ON jc.jc_pk = cc.jc_pk
+       AND jc.jc_isvalid = 0
+    LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
+    GROUP BY cc.js_pk
+)
+SELECT t.*,
+    consol.con_master_bill_num,
+    consol.con_vessel,
+    consol.con_voyage,
+    shipper.shipper_name,
+    consignee.consignee_name,
+    cargo.shp_cargo_ready,
+    t.js_hblawbchargesdisplay AS shp_freight_terms,
+    t.js_hblcontainerpackmodeoverride AS shp_delivery_mode,
+    carrier.carrier_name,
+    containers.pac_container_type,
+    containers.pac_container_count,
+    containers.pac_container_num,
+    sales.shp_job_rep_sales_name
+FROM FilteredShipments t
+OUTER APPLY (
+    SELECT TOP 1
+        c.jk_masterbillnum AS con_master_bill_num,
+        ct.jw_vessel AS con_vessel,
+        ct.jw_voyageflight AS con_voyage
+    FROM JobConShipLink l
+    INNER JOIN JobConsol c ON c.jk_pk = l.jn_jk
+    LEFT JOIN JobConsolTransport ct
+        ON ct.jw_parentguid = c.jk_pk
+       AND ct.jw_parenttype = 'CON'
+       AND ct.jw_isvalid = 1
+    WHERE l.jn_js = t.js_pk
+      AND c.jk_iscancelled = 0
+    ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
+             ct.jw_legorder,
+             c.jk_pk
+) consol
+OUTER APPLY (
+    SELECT TOP 1
+        COALESCE(oh.oh_fullname, d.e2_companyname) AS shipper_name
+    FROM JobDocAddress d
+    LEFT JOIN OrgAddress oa ON oa.oa_pk = d.e2_oa_address
+    LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+    WHERE d.e2_parentid = t.js_pk
+      AND d.e2_parenttablecode = 'JS'
+      AND d.e2_addresstype = 'CRD'
+    ORDER BY d.e2_pk
+) shipper
+OUTER APPLY (
+    SELECT TOP 1
+        COALESCE(oh.oh_fullname, d.e2_companyname) AS consignee_name
+    FROM JobDocAddress d
+    LEFT JOIN OrgAddress oa ON oa.oa_pk = d.e2_oa_address
+    LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+    WHERE d.e2_parentid = t.js_pk
+      AND d.e2_parenttablecode = 'JS'
+      AND d.e2_addresstype = 'CEG'
+    ORDER BY d.e2_pk
+) consignee
+OUTER APPLY (
+    SELECT TOP 1 v.XV_Data AS shp_cargo_ready
+    FROM GenCustomAddOnValue v
+    WHERE v.Xv_ParentID = t.js_pk
+      AND v.XV_Name = 'Cargo Ready Date'
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+) cargo
+OUTER APPLY (
+    SELECT TOP 1 oh.oh_fullname AS carrier_name
+    FROM OrgAddress oa
+    LEFT JOIN OrgHeader oh ON oh.oh_pk = oa.oa_oh
+    WHERE oa.oa_pk = t.js_oa_bookedshippinglineaddress
+) carrier
+LEFT JOIN ContainerAggregate containers ON containers.js_pk = t.js_pk
+OUTER APPLY (
+    SELECT TOP 1 gs.GS_FullName AS shp_job_rep_sales_name
+    FROM JobHeader jh
+    LEFT JOIN GlbStaff gs
+        ON gs.GS_Code = jh.jh_gs_nkrepsales
+    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.js_pk)
+      AND jh.jh_parenttablecode = 'JS'
+    ORDER BY jh.jh_pk
+) sales
+ORDER BY t.js_pk DESC
+OPTION (RECOMPILE)
+";
+            var items = (await _appSqlServerRepository.QueryAsync<ShipmentTblRowOutput>(sql, dp)).ToList();
+            var defaults = new List<ExportColumnInput>
+            {
+                new() { key = "js_transportmode", title = "Trans Mode" },
+                new() { key = "js_packingmode", title = "Container Mode" },
+                new() { key = "js_shipmentstatus", title = "Status" },
+                new() { key = "js_uniqueconsignref", title = "Shipment No." },
+                new() { key = "js_consolreference", title = "Consol No." },
+                new() { key = "js_housebill", title = "House Bill" },
+                new() { key = "con_master_bill_num", title = "Master Bill" },
+                new() { key = "shipper_name", title = "Shipper Name" },
+                new() { key = "consignee_name", title = "Consignee Name" },
+                new() { key = "js_rl_nkorigin", title = "Origin" },
+                new() { key = "js_rl_nkdestination", title = "Destination" },
+                new() { key = "shp_cargo_ready", title = "CRD" },
+                new() { key = "js_e_dep", title = "ETD" },
+                new() { key = "js_e_arv", title = "ETA" },
+                new() { key = "js_shippedonboarddate", title = "On Board Date" },
+                new() { key = "js_actualweight", title = "Gross Weight" },
+                new() { key = "js_actualvolume", title = "CBM" },
+                new() { key = "js_actualchargeable", title = "Chargeable Weight" },
+                new() { key = "js_outerpacks", title = "Package" },
+                new() { key = "js_f3_nkpacktype", title = "Unit" },
+                new() { key = "shp_freight_terms", title = "Freight Term" },
+                new() { key = "js_inco", title = "Inco" },
+                new() { key = "shp_delivery_mode", title = "Delivery Mode" },
+                new() { key = "js_releasetype", title = "Release Type" },
+                new() { key = "pac_container_type", title = "Ctr Type" },
+                new() { key = "pac_container_count", title = "Ctr Count" },
+                new() { key = "pac_container_num", title = "Ctr No." },
+                new() { key = "carrier_name", title = "Carrier" },
+                new() { key = "con_vessel", title = "Vessel" },
+                new() { key = "con_voyage", title = "Voyage" },
+                new() { key = "js_systemcreateuser", title = "Create User" },
+                new() { key = "js_systemlastedituser", title = "Modify User" },
+                new() { key = "shp_job_rep_sales_name", title = "Sales Rep" },
+                new() { key = "js_goodsdescription", title = "Goods Description" }
+            };
+            var columns = SjcExcelExportHelper.ResolveColumns(input.columns, defaults);
+            var values = new Dictionary<string, Func<ShipmentTblRowOutput, object>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["js_transportmode"] = item => item.js_transportmode,
+                ["js_packingmode"] = item => item.js_packingmode,
+                ["js_shipmentstatus"] = item => item.js_shipmentstatus,
+                ["js_uniqueconsignref"] = item => item.js_uniqueconsignref,
+                ["js_consolreference"] = item => item.js_consolreference,
+                ["js_housebill"] = item => item.js_housebill,
+                ["con_master_bill_num"] = item => item.con_master_bill_num,
+                ["shipper_name"] = item => item.shipper_name,
+                ["consignee_name"] = item => item.consignee_name,
+                ["js_rl_nkorigin"] = item => item.js_rl_nkorigin,
+                ["js_rl_nkdestination"] = item => item.js_rl_nkdestination,
+                ["shp_cargo_ready"] = item => item.shp_cargo_ready,
+                ["js_e_dep"] = item => item.js_e_dep,
+                ["js_e_arv"] = item => item.js_e_arv,
+                ["js_shippedonboarddate"] = item => item.js_shippedonboarddate,
+                ["js_actualweight"] = item => item.js_actualweight == 0 ? "-" : $"{item.js_actualweight} {item.js_unitofweight ?? "KG"}",
+                ["js_actualvolume"] = item => item.js_actualvolume == 0 ? "-" : $"{item.js_actualvolume} {item.js_unitofvolume ?? "M3"}",
+                ["js_actualchargeable"] = item => item.js_actualchargeable,
+                ["js_outerpacks"] = item => item.js_outerpacks,
+                ["js_f3_nkpacktype"] = item => item.js_f3_nkpacktype,
+                ["shp_freight_terms"] = item => item.shp_freight_terms,
+                ["js_inco"] = item => item.js_inco,
+                ["shp_delivery_mode"] = item => item.shp_delivery_mode,
+                ["js_releasetype"] = item => item.js_releasetype,
+                ["pac_container_type"] = item => item.pac_container_type,
+                ["pac_container_count"] = item => item.pac_container_count,
+                ["pac_container_num"] = item => item.pac_container_num,
+                ["carrier_name"] = item => item.carrier_name,
+                ["con_vessel"] = item => item.con_vessel,
+                ["con_voyage"] = item => item.con_voyage,
+                ["js_systemcreateuser"] = item => item.js_systemcreateuser,
+                ["js_systemlastedituser"] = item => item.js_systemlastedituser,
+                ["shp_job_rep_sales_name"] = item => item.shp_job_rep_sales_name,
+                ["js_goodsdescription"] = item => item.js_goodsdescription
+            };
+            var headers = columns.Select(item => item.title).ToList();
+            var rows = items.Select(item => (IReadOnlyList<object>)columns
+                .Select(column => values.TryGetValue(column.key, out var getter) ? getter(item) : null)
+                .ToList()).ToList();
+            var numericColumns = new HashSet<int>(columns
+                .Select((column, index) => (column, index))
+                .Where(pair => pair.column.key is "js_actualchargeable" or "pac_container_count")
+                .Select(pair => pair.index));
+            return SjcExcelExportHelper.Build(
+                "Shipments",
+                string.IsNullOrWhiteSpace(input.exportTitle) ? "Shipments" : input.exportTitle,
+                string.Empty,
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                headers,
+                rows,
+                numericColumns,
+                companyNameLabel: input.companyNameLabel,
+                reportPeriodLabel: input.reportPeriodLabel);
         }
 
         public async Task<ShipmentDetailOutput> Detail(string id)

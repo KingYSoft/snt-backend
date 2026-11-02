@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using SntBackend.Application.Excel;
 
 namespace SntBackend.Application.Consolidation.Dto
 {
@@ -7,6 +8,10 @@ namespace SntBackend.Application.Consolidation.Dto
         public int SkipCount { get; set; }
         public int MaxResultCount { get; set; } = 20;
         public List<ConsolidationTblFilterItem> filters { get; set; } = new();
+        public List<ExportColumnInput> columns { get; set; } = new();
+        public string exportTitle { get; set; }
+        public string companyNameLabel { get; set; }
+        public string reportPeriodLabel { get; set; }
     }
 
     public class ConsolidationTblFilterItem

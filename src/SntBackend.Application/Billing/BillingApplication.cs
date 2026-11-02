@@ -22,19 +22,22 @@ namespace SntBackend.Application.Billing
         private readonly PlaywrightPdfGenerator _playwrightPdfGenerator;
         private readonly IAppFolders _appFolders;
         private readonly BillingCore _billingCore;
+        private readonly CurrentCompanyNameProvider _currentCompanyNameProvider;
 
         public BillingApplication(
             IAppSqlServerRepository appSqlServerRepository,
             InvoicePdfDataProvider invoicePdfDataProvider,
             PlaywrightPdfGenerator playwrightPdfGenerator,
             IAppFolders appFolders,
-            BillingCore billingCore)
+            BillingCore billingCore,
+            CurrentCompanyNameProvider currentCompanyNameProvider)
         {
             _appSqlServerRepository = appSqlServerRepository;
             _invoicePdfDataProvider = invoicePdfDataProvider;
             _playwrightPdfGenerator = playwrightPdfGenerator;
             _appFolders = appFolders;
             _billingCore = billingCore;
+            _currentCompanyNameProvider = currentCompanyNameProvider;
         }
 
         /// <summary>
@@ -320,6 +323,11 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
             var hasCancelledFilter = filters.Any(item =>
                 string.Equals(item.key, "ah_iscancelled", StringComparison.OrdinalIgnoreCase));
             var whereIf = TblBuildWhere(filters, dp);
+            if (input.selectedPks?.Count > 0)
+            {
+                whereIf += " AND t.ah_pk IN @selectedPks ";
+                dp.Add("selectedPks", input.selectedPks);
+            }
             if (!hasCancelledFilter)
                 whereIf += " AND ISNULL(t.ah_iscancelled, 0) = 0 ";
 
@@ -424,7 +432,7 @@ OPTION (RECOMPILE)
             return SjcExcelExportHelper.Build(
                 ledger == "AR" ? "Receivable" : "Payable",
                 string.IsNullOrWhiteSpace(input.exportTitle) ? title : input.exportTitle,
-                string.Empty,
+                await _currentCompanyNameProvider.GetAsync(),
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 headers,
                 rows,
@@ -1332,6 +1340,11 @@ FROM MatchedHeaders;
             }
 
             whereIf += BuildMatchTransactionDateFilters(input, dp);
+            if (input.SelectedPks?.Count > 0)
+            {
+                whereIf += " AND t.ah_pk IN @selectedPks ";
+                dp.Add("selectedPks", input.SelectedPks);
+            }
 
             var sql = @$"
 {jobMatchSetup}
@@ -1391,7 +1404,7 @@ OPTION (RECOMPILE)
             return SjcExcelExportHelper.Build(
                 "Matching Transactions",
                 string.IsNullOrWhiteSpace(input.ExportTitle) ? "Matching Transactions" : input.ExportTitle,
-                string.Empty,
+                await _currentCompanyNameProvider.GetAsync(),
                 DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                 headers,
                 rows,

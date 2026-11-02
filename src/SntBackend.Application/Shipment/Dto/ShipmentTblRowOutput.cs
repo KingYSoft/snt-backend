@@ -1,10 +1,13 @@
 using SntBackend.Application.Po.Dto;
+using System.Text.Json.Serialization;
 
 namespace SntBackend.Application.Shipment.Dto
 {
     public class ShipmentTblRowOutput : JobShipmentDtoOutput
     {
         public string con_master_bill_num { get; set; }
+        [JsonIgnore]
+        public string linked_consol_reference { get; set; }
         public string shipper_name { get; set; }
         public string consignee_name { get; set; }
         public string shp_cargo_ready { get; set; }

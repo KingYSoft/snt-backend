@@ -8,6 +8,7 @@ namespace SntBackend.Application.Consolidation.Dto
         public int SkipCount { get; set; }
         public int MaxResultCount { get; set; } = 20;
         public List<ConsolidationTblFilterItem> filters { get; set; } = new();
+        public List<string> selectedPks { get; set; } = new();
         public List<ExportColumnInput> columns { get; set; } = new();
         public string exportTitle { get; set; }
         public string companyNameLabel { get; set; }

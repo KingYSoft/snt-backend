@@ -15,6 +15,7 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
         public string PaymentDateEnd { get; set; }
         public int SkipCount { get; set; }
         public int MaxResultCount { get; set; } = 20;
+        public List<string> SelectedPks { get; set; } = new();
         public List<ExportColumnInput> Columns { get; set; } = new();
         public string ExportTitle { get; set; }
         public string CompanyNameLabel { get; set; }

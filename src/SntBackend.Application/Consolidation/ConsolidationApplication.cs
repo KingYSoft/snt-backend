@@ -95,10 +95,84 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                     continue;
                 }
 
-                if (IsShipmentField(item.key))
+                var key = item.key;
+                var isLike = item.op is "Contain" or "Not Contain";
+                var value = item.val.Trim();
+                if (item.op != "between" && string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                var paramName = $"@p{dp.ParameterNames.Count()}";
+                var parameterValue = item.op switch
+                {
+                    _ when isLike => $"%{value}%",
+                    _ => value
+                };
+
+                if (key is "company" or "company_pk" or "jh_gc")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobHeader jh
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    WHERE jh.jh_parentid = t.jk_pk
+      AND jh.jh_parenttablecode = 'JK'
+      AND (jh.jh_gc {MapOp(item.op)} {paramName}
+           OR gc.GC_Code {MapOp(item.op)} {paramName}
+           OR gc.GC_Name {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "sales" or "sales_rep" or "jh_gs_nkrepsales")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobHeader jh
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepsales
+    WHERE jh.jh_parentid = t.jk_pk
+      AND jh.jh_parenttablecode = 'JK'
+      AND (jh.jh_gs_nkrepsales {MapOp(item.op)} {paramName}
+           OR gs.GS_Code {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "operation" or "operator" or "jh_gs_nkrepops")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobHeader jh
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepops
+    WHERE jh.jh_parentid = t.jk_pk
+      AND jh.jh_parenttablecode = 'JK'
+      AND (jh.jh_gs_nkrepops {MapOp(item.op)} {paramName}
+           OR gs.GS_Code {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "customer_service" or "customerService" or "shp_job_rep_cs_name")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM GenCustomAddOnValue v
+    WHERE v.Xv_ParentID = t.jk_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND v.XV_Data {MapOp(item.op)} {paramName}
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (IsShipmentField(key))
                     joinShipment = true;
 
-                var col = GetColumnExpr(item.key);
+                var col = GetColumnExpr(key);
 
                 if (item.op == "between")
                 {
@@ -121,11 +195,8 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                     {
                         continue;
                     }
-                    var val = item.val.Trim();
-                    var paramName = $"@p{dp.ParameterNames.Count()}";
-                    var isContain = item.op == "Contain" || item.op == "Not Contain";
                     parts.Add($" AND {col} {MapOp(item.op)} {paramName}");
-                    dp.Add(paramName, isContain ? $"%{val}%" : val);
+                    dp.Add(paramName, parameterValue);
                 }
             }
 

@@ -19,5 +19,7 @@ namespace SntBackend.Application.Company
         /// exrate_from = 传入外币；exrate_to = 公司本位币（或 InvoiceCurrency）；同币种返回 1。
         /// </summary>
         Task<List<CompanyQueryRateOutput>> Get(GetCompanyInput input);
+
+        Task<List<ExchangeRateListItem>> QueryExchangeRateList(ExchangeRateQueryInput input);
     }
 }

@@ -547,6 +547,64 @@ GROUP BY al_ah
             return whereIf;
         }
 
+        private static string BuildMatchTransactionFilters(MatchTransactionPageInput input, DynamicParameters dp)
+        {
+            var whereIf = string.Empty;
+            if (!string.IsNullOrWhiteSpace(input.SettleCompany))
+            {
+                whereIf += @" AND EXISTS (
+                    SELECT 1
+                    FROM OrgHeader filterCompany
+                    WHERE filterCompany.oh_pk = t.ah_oh
+                      AND (filterCompany.oh_pk = TRY_CONVERT(uniqueidentifier, @settleCompany)
+                           OR filterCompany.oh_code LIKE @settleCompanyLike
+                           OR filterCompany.oh_fullname LIKE @settleCompanyLike)
+                ) ";
+                dp.Add("settleCompany", input.SettleCompany.Trim());
+                dp.Add("settleCompanyLike", $"%{input.SettleCompany.Trim()}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.Currency))
+            {
+                whereIf += " AND t.ah_rx_nktransactioncurrency = @currency ";
+                dp.Add("currency", input.Currency.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.WriteOffBank))
+            {
+                whereIf += @" AND EXISTS (
+                    SELECT 1
+                    FROM AccBankAccount filterBank
+                    WHERE filterBank.ab_pk = t.ah_ab
+                      AND (filterBank.ab_pk = TRY_CONVERT(uniqueidentifier, @writeOffBank)
+                           OR filterBank.ab_code LIKE @writeOffBankLike
+                           OR filterBank.ab_bankname LIKE @writeOffBankLike
+                           OR filterBank.ab_accountnum LIKE @writeOffBankLike
+                           OR filterBank.ab_accountnumber LIKE @writeOffBankLike)
+                ) ";
+                dp.Add("writeOffBank", input.WriteOffBank.Trim());
+                dp.Add("writeOffBankLike", $"%{input.WriteOffBank.Trim()}%");
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.WriteOffUser))
+            {
+                whereIf += @" AND (
+                    t.ah_systemcreateuser LIKE @writeOffUser
+                    OR t.ah_systemlastedituser LIKE @writeOffUser
+                    OR EXISTS (
+                        SELECT 1
+                        FROM AccTransactionMatchLink filterLink
+                        WHERE filterLink.ap_ah = t.ah_pk
+                          AND (filterLink.ap_systemcreateuser LIKE @writeOffUser
+                               OR filterLink.ap_systemlastedituser LIKE @writeOffUser)
+                    )
+                ) ";
+                dp.Add("writeOffUser", $"%{input.WriteOffUser.Trim()}%");
+            }
+
+            return whereIf;
+        }
+
         private async Task<BillingTblOutput> GetPagedList(string ledger, BillingTblInput input)
         {
             var output = new BillingTblOutput();
@@ -1234,6 +1292,7 @@ FROM MatchedHeaders;
             }
 
             whereIf += BuildMatchTransactionDateFilters(input, dp);
+            whereIf += BuildMatchTransactionFilters(input, dp);
 
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
@@ -1254,6 +1313,11 @@ SELECT
     t.ah_oh AS BillingParty,
     o.oh_fullname AS BillingPartyName,
     t.ah_jobnumber AS JobNumber,
+    t.ah_transactionnum AS TaxInvoiceNo,
+    CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
+    o.oh_fullname AS SettleCompanyName,
+    bank.ab_bankname AS WriteOffBankName,
+    COALESCE(NULLIF(t.ah_systemlastedituser, ''), NULLIF(t.ah_systemcreateuser, ''), writeOffUser.ap_systemcreateuser) AS WriteOffUserName,
     t.ah_rx_nktransactioncurrency AS Currency,
     t.ah_ostotal AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
@@ -1261,6 +1325,13 @@ SELECT
 FROM AccTransactionHeader t
 {jobMatchJoin}
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 ap_systemcreateuser
+    FROM AccTransactionMatchLink
+    WHERE ap_ah = t.ah_pk
+    ORDER BY ap_systemcreatetimeutc DESC, ap_pk DESC
+) writeOffUser
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
@@ -1340,6 +1411,7 @@ FROM MatchedHeaders;
             }
 
             whereIf += BuildMatchTransactionDateFilters(input, dp);
+            whereIf += BuildMatchTransactionFilters(input, dp);
             if (input.SelectedPks?.Count > 0)
             {
                 whereIf += " AND t.ah_pk IN @selectedPks ";
@@ -1355,6 +1427,11 @@ SELECT
     t.ah_oh AS BillingParty,
     o.oh_fullname AS BillingPartyName,
     t.ah_jobnumber AS JobNumber,
+    t.ah_transactionnum AS TaxInvoiceNo,
+    CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
+    o.oh_fullname AS SettleCompanyName,
+    bank.ab_bankname AS WriteOffBankName,
+    COALESCE(NULLIF(t.ah_systemlastedituser, ''), NULLIF(t.ah_systemcreateuser, ''), writeOffUser.ap_systemcreateuser) AS WriteOffUserName,
     t.ah_rx_nktransactioncurrency AS Currency,
     t.ah_ostotal AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
@@ -1362,6 +1439,13 @@ SELECT
 FROM AccTransactionHeader t
 {jobMatchJoin}
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 ap_systemcreateuser
+    FROM AccTransactionMatchLink
+    WHERE ap_ah = t.ah_pk
+    ORDER BY ap_systemcreatetimeutc DESC, ap_pk DESC
+) writeOffUser
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
@@ -1374,7 +1458,12 @@ OPTION (RECOMPILE)
                 new() { key = "index", title = "#" },
                 new() { key = "ledger", title = "Ledger" },
                 new() { key = "matchNumber", title = "Transaction No." },
+                new() { key = "taxInvoiceNo", title = "Tax Invoice No." },
+                new() { key = "taxInvoiceDate", title = "Tax Invoice Date" },
                 new() { key = "billingParty", title = "Company" },
+                new() { key = "settleCompanyName", title = "Settlement Company" },
+                new() { key = "writeOffBankName", title = "Write-off Bank" },
+                new() { key = "writeOffUserName", title = "Write-off User" },
                 new() { key = "currency", title = "Currency" },
                 new() { key = "settledAmount", title = "Amount" },
                 new() { key = "paymentDate", title = "Payment Date" },
@@ -1389,7 +1478,12 @@ OPTION (RECOMPILE)
                     ["index"] = index + 1,
                     ["ledger"] = item.Ledger,
                     ["matchNumber"] = item.MatchNumber,
+                    ["taxInvoiceNo"] = item.TaxInvoiceNo,
+                    ["taxInvoiceDate"] = item.TaxInvoiceDate,
                     ["billingParty"] = string.IsNullOrWhiteSpace(item.BillingPartyName) ? item.BillingParty : item.BillingPartyName,
+                    ["settleCompanyName"] = item.SettleCompanyName,
+                    ["writeOffBankName"] = item.WriteOffBankName,
+                    ["writeOffUserName"] = item.WriteOffUserName,
                     ["currency"] = item.Currency,
                     ["settledAmount"] = item.SettledAmount,
                     ["paymentDate"] = item.PaymentDate,

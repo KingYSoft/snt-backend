@@ -70,4 +70,15 @@ public class CompanyController : SntBackendControllerBase
         var data = await _companyApplication.Get(input);
         return new JsonResponse<List<CompanyQueryRateOutput>> { Data = data };
     }
+
+    [HttpPost]
+    [Route("query-exchange-rate")]
+    public async Task<JsonResponse<List<ExchangeRateListItem>>> QueryExchangeRate(
+        [FromBody] ExchangeRateQueryInput input)
+    {
+        return new JsonResponse<List<ExchangeRateListItem>>
+        {
+            Data = await _companyApplication.QueryExchangeRateList(input)
+        };
+    }
 }

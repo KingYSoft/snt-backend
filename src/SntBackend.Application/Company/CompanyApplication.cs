@@ -321,6 +321,48 @@ ORDER BY
             return results;
         }
 
+        public async Task<List<ExchangeRateListItem>> QueryExchangeRateList(ExchangeRateQueryInput input)
+        {
+            input ??= new ExchangeRateQueryInput();
+            var dp = new DynamicParameters();
+            var where = "WHERE 1 = 1";
+
+            if (!string.IsNullOrWhiteSpace(input.currencyFrom))
+            {
+                where += " AND LTRIM(RTRIM(e.re_rx_nkexcurrency)) = @currencyFrom";
+                dp.Add("currencyFrom", input.currencyFrom.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.currencyTo))
+            {
+                where += " AND LTRIM(RTRIM(c.gc_rx_nklocalcurrency)) = @currencyTo";
+                dp.Add("currencyTo", input.currencyTo.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(input.period))
+            {
+                if (!DateTime.TryParse(input.period.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var period))
+                    throw new AppException("Exchange rate period is invalid.");
+
+                dp.Add("period", period.Date);
+                where += " AND CAST(e.re_startdate AS date) <= @period";
+                where += " AND (e.re_expirydate IS NULL OR CAST(e.re_expirydate AS date) >= @period)";
+            }
+
+            return (await _appSqlServerRepository.QueryAsync<ExchangeRateListItem>($@"
+SELECT
+    CONVERT(varchar(7), e.re_startdate, 23) AS exrate_period,
+    CONVERT(varchar(10), e.re_startdate, 23) AS exrate_start,
+    CONVERT(varchar(10), e.re_expirydate, 23) AS exrate_end,
+    e.re_rx_nkexcurrency AS exrate_from,
+    c.gc_rx_nklocalcurrency AS exrate_to,
+    CONVERT(varchar(40), e.re_sellrate) AS exrate_sell_rate
+FROM ZZRefExchangeRate e
+LEFT JOIN GlbCompany c ON c.gc_pk = e.re_gc
+{where}
+ORDER BY e.re_startdate DESC, e.re_rx_nkexcurrency, e.re_pk", dp)).ToList();
+        }
+
         /// <summary>
         /// 本位币：取第一家启用的 GlbCompany 的本位币（gc_rx_nklocalcurrency）。
         /// snt 登录无“用户→分公司”映射，故按公司维度返回。

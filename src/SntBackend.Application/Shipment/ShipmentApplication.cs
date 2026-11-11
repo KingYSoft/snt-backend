@@ -32,13 +32,16 @@ namespace SntBackend.Application.Shipment
             {
                 return op switch
                 {
-                    "=" => "=",
+                    "=" or "Equal" => "=",
+                    "!=" or "<>" or "NotEqual" => "<>",
                     ">" => ">",
                     "<" => "<",
                     ">=" => ">=",
                     "<=" => "<=",
                     "Contain" => "LIKE",
-                    "Not Contain" => "NOT LIKE",
+                    "Not Contain" or "NotContain" => "NOT LIKE",
+                    "StartWith" => "LIKE",
+                    "EndWith" => "LIKE",
                     _ => "="
                 };
             }
@@ -50,7 +53,83 @@ namespace SntBackend.Application.Shipment
                     continue;
                 }
 
-                if (string.Equals(item.key, "js_consolreference", StringComparison.OrdinalIgnoreCase))
+                var key = item.key;
+                var isLike = item.op is "Contain" or "Not Contain" or "NotContain" or "StartWith" or "EndWith";
+                var value = item.val.Trim();
+                if (item.op != "between" && string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                var paramName = $"@p{dp.ParameterNames.Count()}";
+                var parameterValue = item.op switch
+                {
+                    "StartWith" => $"{value}%",
+                    "EndWith" => $"%{value}",
+                    _ when isLike => $"%{value}%",
+                    _ => value
+                };
+
+                if (key is "company" or "company_pk" or "jh_gc")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobHeader jh
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    WHERE jh.jh_parentid = t.js_pk
+      AND jh.jh_parenttablecode = 'JS'
+      AND (jh.jh_gc {MapOp(item.op)} {paramName}
+           OR gc.GC_Code {MapOp(item.op)} {paramName}
+           OR gc.GC_Name {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "sales" or "sales_rep" or "jh_gs_nkrepsales")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobHeader jh
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepsales
+    WHERE jh.jh_parentid = t.js_pk
+      AND jh.jh_parenttablecode = 'JS'
+      AND (jh.jh_gs_nkrepsales {MapOp(item.op)} {paramName}
+           OR gs.GS_Code {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "operation" or "operator" or "jh_gs_nkrepops")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobHeader jh
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepops
+    WHERE jh.jh_parentid = t.js_pk
+      AND jh.jh_parenttablecode = 'JS'
+      AND (jh.jh_gs_nkrepops {MapOp(item.op)} {paramName}
+           OR gs.GS_Code {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "customer_service" or "customerService" or "shp_job_rep_cs_name")
+                {
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM GenCustomAddOnValue v
+    WHERE v.Xv_ParentID = t.js_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND v.XV_Data {MapOp(item.op)} {paramName}
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (string.Equals(key, "js_consolreference", StringComparison.OrdinalIgnoreCase))
                 {
                     if (item.op == "between")
                     {
@@ -70,9 +149,15 @@ namespace SntBackend.Application.Shipment
        AND c.jk_iscancelled = 0
      ORDER BY c.jk_pk))";
                     var consolParam = $"@p{dp.ParameterNames.Count()}";
-                    var isContain = item.op == "Contain" || item.op == "Not Contain";
+                    var consolValue = item.op switch
+                    {
+                        "StartWith" => $"{item.val.Trim()}%",
+                        "EndWith" => $"%{item.val.Trim()}",
+                        "Contain" or "Not Contain" or "NotContain" => $"%{item.val.Trim()}%",
+                        _ => item.val.Trim()
+                    };
                     parts.Add($" AND {consolReference} {MapOp(item.op)} {consolParam} ");
-                    dp.Add(consolParam, isContain ? $"%{item.val.Trim()}%" : item.val.Trim());
+                    dp.Add(consolParam, consolValue);
                     continue;
                 }
 
@@ -81,27 +166,20 @@ namespace SntBackend.Application.Shipment
                     if (!string.IsNullOrWhiteSpace(item.start) && DateTime.TryParse(item.start, out var startDate))
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} >= {paramNameStart} ");
+                        parts.Add($" AND t.{key} >= {paramNameStart} ");
                         dp.Add(paramNameStart, startDate);
                     }
                     if (!string.IsNullOrWhiteSpace(item.end) && DateTime.TryParse(item.end, out var endDate))
                     {
                         var paramNameEnd = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND t.{item.key} < {paramNameEnd}");
+                        parts.Add($" AND t.{key} < {paramNameEnd}");
                         dp.Add(paramNameEnd, endDate.AddDays(1));
                     }
                 }
                 else
                 {
-                    if (string.IsNullOrWhiteSpace(item.val))
-                    {
-                        continue;
-                    }
-                    var val = item.val.Trim();
-                    var paramName = $"@p{dp.ParameterNames.Count()}";
-                    var isContain = item.op == "Contain" || item.op == "Not Contain";
-                    parts.Add($" AND t.{item.key} {MapOp(item.op)} {paramName}");
-                    dp.Add(paramName, isContain ? $"%{val}%" : val);
+                    parts.Add($" AND t.{key} {MapOp(item.op)} {paramName}");
+                    dp.Add(paramName, parameterValue);
                 }
             }
 

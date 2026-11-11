@@ -264,6 +264,14 @@ SELECT t.*,
     containers.pac_container_type,
     containers.pac_container_count,
     containers.pac_container_num,
+    jobHeader.jh_gc,
+    jobHeader.company_name,
+    jobHeader.jh_gs_nkrepsales,
+    jobHeader.sales_name,
+    jobHeader.jh_gs_nkrepops,
+    jobHeader.operation_name,
+    customerService.customer_service,
+    customerService.customer_service_name,
     sales.shp_job_rep_sales_name
 FROM PageShipments t
 OUTER APPLY (
@@ -320,6 +328,33 @@ OUTER APPLY (
     WHERE oa.oa_pk = t.js_oa_bookedshippinglineaddress
 ) carrier
 LEFT JOIN ContainerAggregate containers ON containers.js_pk = t.js_pk
+OUTER APPLY (
+    SELECT TOP 1
+        jh.jh_gc,
+        gc.GC_Name AS company_name,
+        jh.jh_gs_nkrepsales,
+        salesStaff.GS_FullName AS sales_name,
+        jh.jh_gs_nkrepops,
+        operationStaff.GS_FullName AS operation_name
+    FROM JobHeader jh
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.js_pk)
+      AND jh.jh_parenttablecode = 'JS'
+    ORDER BY jh.jh_pk
+) jobHeader
+OUTER APPLY (
+    SELECT TOP 1
+        v.XV_Data AS customer_service,
+        COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+    FROM GenCustomAddOnValue v
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE v.Xv_ParentID = t.js_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+    ORDER BY v.XV_PK
+) customerService
 OUTER APPLY (
     SELECT TOP 1 gs.GS_FullName AS shp_job_rep_sales_name
     FROM JobHeader jh
@@ -450,6 +485,10 @@ SELECT t.*,
     containers.pac_container_type,
     containers.pac_container_count,
     containers.pac_container_num,
+    jobHeader.company_name,
+    jobHeader.sales_name,
+    jobHeader.operation_name,
+    customerService.customer_service_name,
     sales.shp_job_rep_sales_name
 FROM FilteredShipments t
 OUTER APPLY (
@@ -507,6 +546,28 @@ OUTER APPLY (
 ) carrier
 LEFT JOIN ContainerAggregate containers ON containers.js_pk = t.js_pk
 OUTER APPLY (
+    SELECT TOP 1
+        gc.GC_Name AS company_name,
+        salesStaff.GS_FullName AS sales_name,
+        operationStaff.GS_FullName AS operation_name
+    FROM JobHeader jh
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.js_pk)
+      AND jh.jh_parenttablecode = 'JS'
+    ORDER BY jh.jh_pk
+) jobHeader
+OUTER APPLY (
+    SELECT TOP 1 COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+    FROM GenCustomAddOnValue v
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE v.Xv_ParentID = t.js_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+    ORDER BY v.XV_PK
+) customerService
+OUTER APPLY (
     SELECT TOP 1 gs.GS_FullName AS shp_job_rep_sales_name
     FROM JobHeader jh
     LEFT JOIN GlbStaff gs
@@ -554,6 +615,10 @@ OPTION (RECOMPILE)
                 new() { key = "js_systemcreateuser", title = "Create User" },
                 new() { key = "js_systemlastedituser", title = "Modify User" },
                 new() { key = "shp_job_rep_sales_name", title = "Sales Rep" },
+                new() { key = "company_name", title = "Company" },
+                new() { key = "sales_name", title = "Sales" },
+                new() { key = "operation_name", title = "Operation" },
+                new() { key = "customer_service_name", title = "Customer Service" },
                 new() { key = "js_goodsdescription", title = "Goods Description" }
             };
             var columns = SjcExcelExportHelper.ResolveColumns(input.columns, defaults);
@@ -594,6 +659,14 @@ OPTION (RECOMPILE)
                 ["js_systemcreateuser"] = item => item.js_systemcreateuser,
                 ["js_systemlastedituser"] = item => item.js_systemlastedituser,
                 ["shp_job_rep_sales_name"] = item => item.shp_job_rep_sales_name,
+                ["jh_gc"] = item => item.company_name,
+                ["jh_gs_nkrepsales"] = item => item.sales_name,
+                ["jh_gs_nkrepops"] = item => item.operation_name,
+                ["customer_service"] = item => item.customer_service_name,
+                ["company_name"] = item => item.company_name,
+                ["sales_name"] = item => item.sales_name,
+                ["operation_name"] = item => item.operation_name,
+                ["customer_service_name"] = item => item.customer_service_name,
                 ["js_goodsdescription"] = item => item.js_goodsdescription
             };
             var headers = columns.Select(item => item.title).ToList();

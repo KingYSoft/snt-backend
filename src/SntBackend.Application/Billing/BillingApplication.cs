@@ -1847,12 +1847,14 @@ ORDER BY jr.jr_displaysequence, jr.jr_pk
                 dp.Add("queryLike", $"{input.Query.Trim()}%");
             }
 
+            var transactionWhere = input.IncludeAll
+                ? "h.AH_IsCancelled = 0 AND h.AH_TransactionType IN ('REC', 'PAY', 'INV')"
+                : "h.AH_FullyPaidDate IS NULL AND h.AH_TransactionType = 'INV'";
             var sql = $@"
 SELECT DISTINCT h.AH_OH, o.OH_FullName, o.OH_Code
 FROM [dbo].[AccTransactionHeader] AS h
 INNER JOIN [dbo].[OrgHeader] AS o ON o.OH_PK = h.AH_OH
-WHERE h.AH_FullyPaidDate IS NULL
-    AND h.AH_TransactionType = 'INV'
+WHERE {transactionWhere}
     {whereIf}
 ";
             output.List = (await _appSqlServerRepository.QueryAsync<QueryOrgAddressDto>(sql, dp)).ToList();

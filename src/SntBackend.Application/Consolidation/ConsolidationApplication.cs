@@ -159,7 +159,15 @@ SELECT {distinct} t.*,
     transport.con_voyage,
     transport.con_carrier_name,
     containers.ctr_type,
-    containers.ctr_count
+    containers.ctr_count,
+    jobHeader.jh_gc,
+    jobHeader.company_name,
+    jobHeader.jh_gs_nkrepsales,
+    jobHeader.sales_name,
+    jobHeader.jh_gs_nkrepops,
+    jobHeader.operation_name,
+    customerService.customer_service,
+    customerService.customer_service_name
 FROM JobConsol t
 {shipmentJoin}
 OUTER APPLY (
@@ -194,6 +202,33 @@ OUTER APPLY (
          WHERE jc.jc_jk = t.jk_pk
            AND jc.jc_isvalid = 0) AS ctr_count
 ) containers
+OUTER APPLY (
+    SELECT TOP 1
+        jh.jh_gc,
+        gc.GC_Name AS company_name,
+        jh.jh_gs_nkrepsales,
+        salesStaff.GS_FullName AS sales_name,
+        jh.jh_gs_nkrepops,
+        operationStaff.GS_FullName AS operation_name
+    FROM JobHeader jh
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.jk_pk)
+      AND jh.jh_parenttablecode = 'JK'
+    ORDER BY jh.jh_pk
+) jobHeader
+OUTER APPLY (
+    SELECT TOP 1
+        v.XV_Data AS customer_service,
+        COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+    FROM GenCustomAddOnValue v
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE v.Xv_ParentID = t.jk_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+    ORDER BY v.XV_PK
+) customerService
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
@@ -254,7 +289,11 @@ SELECT {distinct}
     transport.con_voyage,
     transport.con_carrier_name,
     containers.ctr_type,
-    containers.ctr_count
+    containers.ctr_count,
+    jobHeader.company_name,
+    jobHeader.sales_name,
+    jobHeader.operation_name,
+    customerService.customer_service_name
 FROM JobConsol t
 {shipmentJoin}
 OUTER APPLY (
@@ -289,6 +328,28 @@ OUTER APPLY (
          WHERE jc.jc_jk = t.jk_pk
            AND jc.jc_isvalid = 0) AS ctr_count
 ) containers
+OUTER APPLY (
+    SELECT TOP 1
+        gc.GC_Name AS company_name,
+        salesStaff.GS_FullName AS sales_name,
+        operationStaff.GS_FullName AS operation_name
+    FROM JobHeader jh
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.jk_pk)
+      AND jh.jh_parenttablecode = 'JK'
+    ORDER BY jh.jh_pk
+) jobHeader
+OUTER APPLY (
+    SELECT TOP 1 COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+    FROM GenCustomAddOnValue v
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE v.Xv_ParentID = t.jk_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+    ORDER BY v.XV_PK
+) customerService
 WHERE t.jk_iscancelled = 0
     {whereIf}
 ORDER BY t.jk_pk DESC
@@ -314,6 +375,10 @@ OPTION (RECOMPILE)
                 new() { key = "jk_shippedonboarddate", title = "On Board Date" },
                 new() { key = "jk_systemcreateuser", title = "Create User" },
                 new() { key = "jk_systemlastedituser", title = "Modify User" },
+                new() { key = "company_name", title = "Company" },
+                new() { key = "sales_name", title = "Sales" },
+                new() { key = "operation_name", title = "Operation" },
+                new() { key = "customer_service_name", title = "Customer Service" },
                 new() { key = "jk_phase", title = "Phase" },
                 new() { key = "jk_consolchargeable", title = "Consol Chargeable" },
                 new() { key = "jk_iscancelled", title = "Cancelled" }
@@ -337,7 +402,15 @@ OPTION (RECOMPILE)
                 ["jk_shippedonboarddate"] = item => item.jk_shippedonboarddate,
                 ["jk_systemcreateuser"] = item => item.jk_systemcreateuser,
                 ["jk_systemlastedituser"] = item => item.jk_systemlastedituser,
+                ["jh_gc"] = item => item.company_name,
+                ["jh_gs_nkrepsales"] = item => item.sales_name,
+                ["jh_gs_nkrepops"] = item => item.operation_name,
+                ["customer_service"] = item => item.customer_service_name,
                 ["jk_phase"] = item => item.jk_phase,
+                ["company_name"] = item => item.company_name,
+                ["sales_name"] = item => item.sales_name,
+                ["operation_name"] = item => item.operation_name,
+                ["customer_service_name"] = item => item.customer_service_name,
                 ["jk_consolchargeable"] = item => item.jk_consolchargeable,
                 ["jk_iscancelled"] = item => item.jk_iscancelled == 1 ? "Y" : "N"
             };

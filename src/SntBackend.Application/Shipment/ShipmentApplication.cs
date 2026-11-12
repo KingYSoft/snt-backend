@@ -269,7 +269,7 @@ OUTER APPLY (
 OUTER APPLY (
     SELECT TOP 1
         v.XV_Data AS customer_service,
-        COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+        gs.GS_FullName AS customer_service_name
     FROM GenCustomAddOnValue v
     LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
     WHERE v.Xv_ParentID = t.js_pk
@@ -481,7 +481,7 @@ OUTER APPLY (
     ORDER BY jh.jh_pk
 ) jobHeader
 OUTER APPLY (
-    SELECT TOP 1 COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+    SELECT TOP 1 gs.GS_FullName AS customer_service_name
     FROM GenCustomAddOnValue v
     LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
     WHERE v.Xv_ParentID = t.js_pk

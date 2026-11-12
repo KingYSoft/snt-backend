@@ -152,18 +152,7 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-WITH FilteredConsols AS (
-SELECT {distinct} t.*
-FROM JobConsol t
-{shipmentJoin}
-WHERE 1 = 1
-    AND t.jk_iscancelled = 0
-    {whereIf}
-), PageConsols AS (
-SELECT filtered.*, ROW_NUMBER() OVER (ORDER BY filtered.jk_pk DESC) AS page_row_number
-FROM FilteredConsols filtered
-)
-SELECT t.*,
+SELECT {distinct} t.*,
     transport.con_etd,
     transport.con_eta,
     transport.con_vessel,
@@ -179,7 +168,8 @@ SELECT t.*,
     jobHeader.operation_name,
     customerService.customer_service,
     customerService.customer_service_name
-FROM PageConsols t
+FROM JobConsol t
+{shipmentJoin}
 OUTER APPLY (
     SELECT TOP 1
         ct.jw_etd AS con_etd,
@@ -233,7 +223,7 @@ OUTER APPLY (
 OUTER APPLY (
     SELECT TOP 1
         v.XV_Data AS customer_service,
-        COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
+        gs.GS_FullName AS customer_service_name
     FROM GenCustomAddOnValue v
     INNER JOIN JobShipment shipment ON shipment.js_pk = v.Xv_ParentID
     INNER JOIN JobConShipLink link ON link.jn_js = shipment.js_pk
@@ -244,9 +234,10 @@ OUTER APPLY (
     ORDER BY v.XV_PK
 ) customerService
 WHERE 1 = 1
-    AND t.page_row_number > @skipCount
-    AND t.page_row_number <= @skipCount + @takeCount
+    AND t.jk_iscancelled = 0
+    {whereIf}
 ORDER BY t.jk_pk desc
+OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
@@ -338,7 +329,7 @@ WITH FilteredConsols AS (
 ), CustomerServiceRows AS (
     SELECT
         link.jn_jk AS jk_pk,
-        COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name,
+        gs.GS_FullName AS customer_service_name,
         ROW_NUMBER() OVER (PARTITION BY link.jn_jk ORDER BY v.XV_PK) AS row_number
     FROM GenCustomAddOnValue v
     INNER JOIN JobShipment shipment ON shipment.js_pk = v.Xv_ParentID

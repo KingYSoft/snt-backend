@@ -16,6 +16,11 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
         public string BillingParty { get; set; }
         public string BillingPartyName { get; set; }
         public string JobNumber { get; set; }
+        public string TaxInvoiceNo { get; set; }
+        public string TaxInvoiceDate { get; set; }
+        public string SettleCompanyName { get; set; }
+        public string WriteOffBankName { get; set; }
+        public string WriteOffUserName { get; set; }
         public string Currency { get; set; }
         public decimal SettledAmount { get; set; }
         public string PaymentDate { get; set; }

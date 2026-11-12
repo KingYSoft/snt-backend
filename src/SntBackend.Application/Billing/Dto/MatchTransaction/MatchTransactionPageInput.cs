@@ -13,6 +13,10 @@ namespace SntBackend.Application.Billing.Dto.MatchTransaction
         public string EtdEnd { get; set; }
         public string PaymentDateStart { get; set; }
         public string PaymentDateEnd { get; set; }
+        public string SettleCompany { get; set; }
+        public string Currency { get; set; }
+        public string WriteOffBank { get; set; }
+        public string WriteOffUser { get; set; }
         public int SkipCount { get; set; }
         public int MaxResultCount { get; set; } = 20;
         public List<string> SelectedPks { get; set; } = new();

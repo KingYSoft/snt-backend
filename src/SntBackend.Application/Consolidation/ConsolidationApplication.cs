@@ -152,7 +152,18 @@ WHERE 1 = 1
     {whereIf}
 ";
             var pageSql = @$"
-SELECT {distinct} t.*,
+WITH FilteredConsols AS (
+SELECT {distinct} t.*
+FROM JobConsol t
+{shipmentJoin}
+WHERE 1 = 1
+    AND t.jk_iscancelled = 0
+    {whereIf}
+), PageConsols AS (
+SELECT filtered.*, ROW_NUMBER() OVER (ORDER BY filtered.jk_pk DESC) AS page_row_number
+FROM FilteredConsols filtered
+)
+SELECT t.*,
     transport.con_etd,
     transport.con_eta,
     transport.con_vessel,
@@ -168,8 +179,7 @@ SELECT {distinct} t.*,
     jobHeader.operation_name,
     customerService.customer_service,
     customerService.customer_service_name
-FROM JobConsol t
-{shipmentJoin}
+FROM PageConsols t
 OUTER APPLY (
     SELECT TOP 1
         ct.jw_etd AS con_etd,
@@ -210,12 +220,14 @@ OUTER APPLY (
         salesStaff.GS_FullName AS sales_name,
         jh.jh_gs_nkrepops,
         operationStaff.GS_FullName AS operation_name
-    FROM JobHeader jh
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), shipment.js_pk)
+        AND jh.jh_parenttablecode = 'JS'
     LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
     LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
     LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
-    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.jk_pk)
-      AND jh.jh_parenttablecode = 'JK'
+    WHERE link.jn_jk = t.jk_pk
     ORDER BY jh.jh_pk
 ) jobHeader
 OUTER APPLY (
@@ -223,17 +235,18 @@ OUTER APPLY (
         v.XV_Data AS customer_service,
         COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
     FROM GenCustomAddOnValue v
+    INNER JOIN JobShipment shipment ON shipment.js_pk = v.Xv_ParentID
+    INNER JOIN JobConShipLink link ON link.jn_js = shipment.js_pk
     LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
-    WHERE v.Xv_ParentID = t.jk_pk
+    WHERE link.jn_jk = t.jk_pk
       AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
       AND NULLIF(v.XV_Data, '') IS NOT NULL
     ORDER BY v.XV_PK
 ) customerService
 WHERE 1 = 1
-    AND t.jk_iscancelled = 0
-    {whereIf}
+    AND t.page_row_number > @skipCount
+    AND t.page_row_number <= @skipCount + @takeCount
 ORDER BY t.jk_pk desc
-OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
@@ -269,7 +282,72 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
                 : "";
             var distinct = joinShipment ? "DISTINCT" : "";
             var sql = @$"
-SELECT {distinct}
+WITH FilteredConsols AS (
+    SELECT {distinct} t.*
+    FROM JobConsol t
+    {shipmentJoin}
+    WHERE t.jk_iscancelled = 0
+        {whereIf}
+), TransportRows AS (
+    SELECT
+        ct.jw_parentguid AS jk_pk,
+        ct.jw_etd AS con_etd,
+        ct.jw_eta AS con_eta,
+        ct.jw_vessel AS con_vessel,
+        ct.jw_voyageflight AS con_voyage,
+        carrier.oh_fullname AS con_carrier_name,
+        ROW_NUMBER() OVER (
+            PARTITION BY ct.jw_parentguid
+            ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
+                     ct.jw_legorder,
+                     ct.jw_pk) AS row_number
+    FROM JobConsolTransport ct
+    LEFT JOIN OrgAddress carrier_oa ON carrier_oa.oa_pk = ct.jw_oa_carrieraddress
+    LEFT JOIN OrgHeader carrier ON carrier.oh_pk = carrier_oa.oa_oh
+    WHERE ct.jw_parenttype = 'CON'
+      AND ct.jw_isvalid = 1
+), ContainerRows AS (
+    SELECT
+        jc.jc_jk AS jk_pk,
+        STUFF((
+            SELECT DISTINCT ',' + NULLIF(RTRIM(rc2.RC_Code), '')
+            FROM JobContainer jc2
+            LEFT JOIN RefContainer rc2 ON rc2.RC_PK = jc2.jc_rc
+            WHERE jc2.jc_jk = jc.jc_jk
+              AND jc2.jc_isvalid = 0
+              AND NULLIF(RTRIM(rc2.RC_Code), '') IS NOT NULL
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ctr_type,
+        SUM(ISNULL(jc.jc_containercount, 1)) AS ctr_count
+    FROM JobContainer jc
+    WHERE jc.jc_isvalid = 0
+    GROUP BY jc.jc_jk
+), JobHeaderRows AS (
+    SELECT
+        link.jn_jk AS jk_pk,
+        gc.GC_Name AS company_name,
+        salesStaff.GS_FullName AS sales_name,
+        operationStaff.GS_FullName AS operation_name,
+        ROW_NUMBER() OVER (PARTITION BY link.jn_jk ORDER BY jh.jh_pk) AS row_number
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), shipment.js_pk)
+        AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+), CustomerServiceRows AS (
+    SELECT
+        link.jn_jk AS jk_pk,
+        COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name,
+        ROW_NUMBER() OVER (PARTITION BY link.jn_jk ORDER BY v.XV_PK) AS row_number
+    FROM GenCustomAddOnValue v
+    INNER JOIN JobShipment shipment ON shipment.js_pk = v.Xv_ParentID
+    INNER JOIN JobConShipLink link ON link.jn_js = shipment.js_pk
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+)
+SELECT
     t.jk_pk,
     t.jk_transportmode,
     t.jk_consolmode,
@@ -294,64 +372,11 @@ SELECT {distinct}
     jobHeader.sales_name,
     jobHeader.operation_name,
     customerService.customer_service_name
-FROM JobConsol t
-{shipmentJoin}
-OUTER APPLY (
-    SELECT TOP 1
-        ct.jw_etd AS con_etd,
-        ct.jw_eta AS con_eta,
-        ct.jw_vessel AS con_vessel,
-        ct.jw_voyageflight AS con_voyage,
-        carrier.oh_fullname AS con_carrier_name
-    FROM JobConsolTransport ct
-    LEFT JOIN OrgAddress carrier_oa ON carrier_oa.oa_pk = ct.jw_oa_carrieraddress
-    LEFT JOIN OrgHeader carrier ON carrier.oh_pk = carrier_oa.oa_oh
-    WHERE ct.jw_parentguid = t.jk_pk
-      AND ct.jw_parenttype = 'CON'
-      AND ct.jw_isvalid = 1
-    ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
-             ct.jw_legorder,
-             ct.jw_pk
-) transport
-OUTER APPLY (
-    SELECT
-        STUFF((
-            SELECT DISTINCT ',' + NULLIF(RTRIM(rc.RC_Code), '')
-            FROM JobContainer jc
-            LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
-            WHERE jc.jc_jk = t.jk_pk
-              AND jc.jc_isvalid = 0
-              AND NULLIF(RTRIM(rc.RC_Code), '') IS NOT NULL
-            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ctr_type,
-        (SELECT SUM(ISNULL(jc.jc_containercount, 1))
-         FROM JobContainer jc
-         WHERE jc.jc_jk = t.jk_pk
-           AND jc.jc_isvalid = 0) AS ctr_count
-) containers
-OUTER APPLY (
-    SELECT TOP 1
-        gc.GC_Name AS company_name,
-        salesStaff.GS_FullName AS sales_name,
-        operationStaff.GS_FullName AS operation_name
-    FROM JobHeader jh
-    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
-    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
-    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
-    WHERE CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), t.jk_pk)
-      AND jh.jh_parenttablecode = 'JK'
-    ORDER BY jh.jh_pk
-) jobHeader
-OUTER APPLY (
-    SELECT TOP 1 COALESCE(gs.GS_FullName, v.XV_Data) AS customer_service_name
-    FROM GenCustomAddOnValue v
-    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
-    WHERE v.Xv_ParentID = t.jk_pk
-      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
-      AND NULLIF(v.XV_Data, '') IS NOT NULL
-    ORDER BY v.XV_PK
-) customerService
-WHERE t.jk_iscancelled = 0
-    {whereIf}
+FROM FilteredConsols t
+LEFT JOIN TransportRows transport ON transport.jk_pk = t.jk_pk AND transport.row_number = 1
+LEFT JOIN ContainerRows containers ON containers.jk_pk = t.jk_pk
+LEFT JOIN JobHeaderRows jobHeader ON jobHeader.jk_pk = t.jk_pk AND jobHeader.row_number = 1
+LEFT JOIN CustomerServiceRows customerService ON customerService.jk_pk = t.jk_pk AND customerService.row_number = 1
 ORDER BY t.jk_pk DESC
 OPTION (RECOMPILE)
 ";

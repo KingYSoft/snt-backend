@@ -159,7 +159,15 @@ SELECT {distinct} t.*,
     transport.con_voyage,
     transport.con_carrier_name,
     containers.ctr_type,
-    containers.ctr_count
+    containers.ctr_count,
+    jobHeader.jh_gc,
+    jobHeader.company_name,
+    jobHeader.jh_gs_nkrepsales,
+    jobHeader.sales_name,
+    jobHeader.jh_gs_nkrepops,
+    jobHeader.operation_name,
+    customerService.customer_service,
+    customerService.customer_service_name
 FROM JobConsol t
 {shipmentJoin}
 OUTER APPLY (
@@ -194,6 +202,37 @@ OUTER APPLY (
          WHERE jc.jc_jk = t.jk_pk
            AND jc.jc_isvalid = 0) AS ctr_count
 ) containers
+OUTER APPLY (
+    SELECT TOP 1
+        jh.jh_gc,
+        gc.GC_Name AS company_name,
+        jh.jh_gs_nkrepsales,
+        salesStaff.GS_FullName AS sales_name,
+        jh.jh_gs_nkrepops,
+        operationStaff.GS_FullName AS operation_name
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), shipment.js_pk)
+        AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+    WHERE link.jn_jk = t.jk_pk
+    ORDER BY jh.jh_pk
+) jobHeader
+OUTER APPLY (
+    SELECT TOP 1
+        v.XV_Data AS customer_service,
+        gs.GS_FullName AS customer_service_name
+    FROM GenCustomAddOnValue v
+    INNER JOIN JobShipment shipment ON shipment.js_pk = v.Xv_ParentID
+    INNER JOIN JobConShipLink link ON link.jn_js = shipment.js_pk
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE link.jn_jk = t.jk_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+    ORDER BY v.XV_PK
+) customerService
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
@@ -234,7 +273,72 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
                 : "";
             var distinct = joinShipment ? "DISTINCT" : "";
             var sql = @$"
-SELECT {distinct}
+WITH FilteredConsols AS (
+    SELECT {distinct} t.*
+    FROM JobConsol t
+    {shipmentJoin}
+    WHERE t.jk_iscancelled = 0
+        {whereIf}
+), TransportRows AS (
+    SELECT
+        ct.jw_parentguid AS jk_pk,
+        ct.jw_etd AS con_etd,
+        ct.jw_eta AS con_eta,
+        ct.jw_vessel AS con_vessel,
+        ct.jw_voyageflight AS con_voyage,
+        carrier.oh_fullname AS con_carrier_name,
+        ROW_NUMBER() OVER (
+            PARTITION BY ct.jw_parentguid
+            ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
+                     ct.jw_legorder,
+                     ct.jw_pk) AS row_number
+    FROM JobConsolTransport ct
+    LEFT JOIN OrgAddress carrier_oa ON carrier_oa.oa_pk = ct.jw_oa_carrieraddress
+    LEFT JOIN OrgHeader carrier ON carrier.oh_pk = carrier_oa.oa_oh
+    WHERE ct.jw_parenttype = 'CON'
+      AND ct.jw_isvalid = 1
+), ContainerRows AS (
+    SELECT
+        jc.jc_jk AS jk_pk,
+        STUFF((
+            SELECT DISTINCT ',' + NULLIF(RTRIM(rc2.RC_Code), '')
+            FROM JobContainer jc2
+            LEFT JOIN RefContainer rc2 ON rc2.RC_PK = jc2.jc_rc
+            WHERE jc2.jc_jk = jc.jc_jk
+              AND jc2.jc_isvalid = 0
+              AND NULLIF(RTRIM(rc2.RC_Code), '') IS NOT NULL
+            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ctr_type,
+        SUM(ISNULL(jc.jc_containercount, 1)) AS ctr_count
+    FROM JobContainer jc
+    WHERE jc.jc_isvalid = 0
+    GROUP BY jc.jc_jk
+), JobHeaderRows AS (
+    SELECT
+        link.jn_jk AS jk_pk,
+        gc.GC_Name AS company_name,
+        salesStaff.GS_FullName AS sales_name,
+        operationStaff.GS_FullName AS operation_name,
+        ROW_NUMBER() OVER (PARTITION BY link.jn_jk ORDER BY jh.jh_pk) AS row_number
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), shipment.js_pk)
+        AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
+    LEFT JOIN GlbStaff operationStaff ON operationStaff.GS_Code = jh.jh_gs_nkrepops
+), CustomerServiceRows AS (
+    SELECT
+        link.jn_jk AS jk_pk,
+        gs.GS_FullName AS customer_service_name,
+        ROW_NUMBER() OVER (PARTITION BY link.jn_jk ORDER BY v.XV_PK) AS row_number
+    FROM GenCustomAddOnValue v
+    INNER JOIN JobShipment shipment ON shipment.js_pk = v.Xv_ParentID
+    INNER JOIN JobConShipLink link ON link.jn_js = shipment.js_pk
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND NULLIF(v.XV_Data, '') IS NOT NULL
+)
+SELECT
     t.jk_pk,
     t.jk_transportmode,
     t.jk_consolmode,
@@ -254,43 +358,16 @@ SELECT {distinct}
     transport.con_voyage,
     transport.con_carrier_name,
     containers.ctr_type,
-    containers.ctr_count
-FROM JobConsol t
-{shipmentJoin}
-OUTER APPLY (
-    SELECT TOP 1
-        ct.jw_etd AS con_etd,
-        ct.jw_eta AS con_eta,
-        ct.jw_vessel AS con_vessel,
-        ct.jw_voyageflight AS con_voyage,
-        carrier.oh_fullname AS con_carrier_name
-    FROM JobConsolTransport ct
-    LEFT JOIN OrgAddress carrier_oa ON carrier_oa.oa_pk = ct.jw_oa_carrieraddress
-    LEFT JOIN OrgHeader carrier ON carrier.oh_pk = carrier_oa.oa_oh
-    WHERE ct.jw_parentguid = t.jk_pk
-      AND ct.jw_parenttype = 'CON'
-      AND ct.jw_isvalid = 1
-    ORDER BY CASE WHEN ct.jw_transporttype = 'MAI' THEN 0 ELSE 1 END,
-             ct.jw_legorder,
-             ct.jw_pk
-) transport
-OUTER APPLY (
-    SELECT
-        STUFF((
-            SELECT DISTINCT ',' + NULLIF(RTRIM(rc.RC_Code), '')
-            FROM JobContainer jc
-            LEFT JOIN RefContainer rc ON rc.RC_PK = jc.jc_rc
-            WHERE jc.jc_jk = t.jk_pk
-              AND jc.jc_isvalid = 0
-              AND NULLIF(RTRIM(rc.RC_Code), '') IS NOT NULL
-            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ctr_type,
-        (SELECT SUM(ISNULL(jc.jc_containercount, 1))
-         FROM JobContainer jc
-         WHERE jc.jc_jk = t.jk_pk
-           AND jc.jc_isvalid = 0) AS ctr_count
-) containers
-WHERE t.jk_iscancelled = 0
-    {whereIf}
+    containers.ctr_count,
+    jobHeader.company_name,
+    jobHeader.sales_name,
+    jobHeader.operation_name,
+    customerService.customer_service_name
+FROM FilteredConsols t
+LEFT JOIN TransportRows transport ON transport.jk_pk = t.jk_pk AND transport.row_number = 1
+LEFT JOIN ContainerRows containers ON containers.jk_pk = t.jk_pk
+LEFT JOIN JobHeaderRows jobHeader ON jobHeader.jk_pk = t.jk_pk AND jobHeader.row_number = 1
+LEFT JOIN CustomerServiceRows customerService ON customerService.jk_pk = t.jk_pk AND customerService.row_number = 1
 ORDER BY t.jk_pk DESC
 OPTION (RECOMPILE)
 ";
@@ -314,6 +391,10 @@ OPTION (RECOMPILE)
                 new() { key = "jk_shippedonboarddate", title = "On Board Date" },
                 new() { key = "jk_systemcreateuser", title = "Create User" },
                 new() { key = "jk_systemlastedituser", title = "Modify User" },
+                new() { key = "company_name", title = "Company" },
+                new() { key = "sales_name", title = "Sales" },
+                new() { key = "operation_name", title = "Operation" },
+                new() { key = "customer_service_name", title = "Customer Service" },
                 new() { key = "jk_phase", title = "Phase" },
                 new() { key = "jk_consolchargeable", title = "Consol Chargeable" },
                 new() { key = "jk_iscancelled", title = "Cancelled" }
@@ -337,7 +418,15 @@ OPTION (RECOMPILE)
                 ["jk_shippedonboarddate"] = item => item.jk_shippedonboarddate,
                 ["jk_systemcreateuser"] = item => item.jk_systemcreateuser,
                 ["jk_systemlastedituser"] = item => item.jk_systemlastedituser,
+                ["jh_gc"] = item => item.company_name,
+                ["jh_gs_nkrepsales"] = item => item.sales_name,
+                ["jh_gs_nkrepops"] = item => item.operation_name,
+                ["customer_service"] = item => item.customer_service_name,
                 ["jk_phase"] = item => item.jk_phase,
+                ["company_name"] = item => item.company_name,
+                ["sales_name"] = item => item.sales_name,
+                ["operation_name"] = item => item.operation_name,
+                ["customer_service_name"] = item => item.customer_service_name,
                 ["jk_consolchargeable"] = item => item.jk_consolchargeable,
                 ["jk_iscancelled"] = item => item.jk_iscancelled == 1 ? "Y" : "N"
             };

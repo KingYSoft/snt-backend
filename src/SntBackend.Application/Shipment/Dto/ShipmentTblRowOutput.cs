@@ -19,6 +19,14 @@ namespace SntBackend.Application.Shipment.Dto
         public string carrier_name { get; set; }
         public string con_vessel { get; set; }
         public string con_voyage { get; set; }
+        public string jh_gc { get; set; }
+        public string company_name { get; set; }
+        public string jh_gs_nkrepsales { get; set; }
+        public string sales_name { get; set; }
+        public string jh_gs_nkrepops { get; set; }
+        public string operation_name { get; set; }
+        public string customer_service { get; set; }
+        public string customer_service_name { get; set; }
         public string shp_job_rep_sales_name { get; set; }
     }
 }

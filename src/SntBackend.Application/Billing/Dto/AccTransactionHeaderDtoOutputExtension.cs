@@ -7,6 +7,16 @@ namespace SntBackend.Application.Po.Dto
         /// </summary>
         public string oh_fullname { get; set; }
 
+        public string SettleCompanyName { get; set; }
+
+        public string WriteOffBankName { get; set; }
+
+        public string WriteOffUserName { get; set; }
+
+        public string TaxInvoiceNo { get; set; }
+
+        public string TaxInvoiceDate { get; set; }
+
         /// <summary>
         /// 是否草稿：ah_postdate 有值（已过账）= "N"，否则 "Y"。
         /// 口径与 <see cref="SntBackend.Application.Consolidation.ConsolCostQuery"/> 费用行上的同名字段一致。

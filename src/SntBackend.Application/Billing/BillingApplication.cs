@@ -121,6 +121,38 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
             return value.Date;
         }
 
+        private static string BuildWriteOffBankFilter(string bankLikeParam, string bankPkParam)
+        {
+            var bankPkCondition = string.IsNullOrWhiteSpace(bankPkParam)
+                ? string.Empty
+                : $"b.ab_pk = TRY_CONVERT(uniqueidentifier, {bankPkParam}) OR ";
+
+            return $@"t.ah_pk IN (
+    SELECT settlementHeader.ah_pk
+    FROM AccTransactionHeader settlementHeader
+    INNER JOIN AccBankAccount b ON b.ab_pk = settlementHeader.ah_ab
+    WHERE settlementHeader.ah_transactiontype IN ('REC', 'PAY')
+      AND ({bankPkCondition}b.ab_code LIKE {bankLikeParam}
+           OR b.ab_bankname LIKE {bankLikeParam}
+           OR b.ab_accountnum LIKE {bankLikeParam}
+           OR b.ab_accountnumber LIKE {bankLikeParam})
+    UNION
+    SELECT currentLink.ap_ah
+    FROM AccTransactionMatchLink currentLink
+    INNER JOIN AccTransactionMatchLink settlementLink
+        ON settlementLink.ap_matchgroupnum = currentLink.ap_matchgroupnum
+       AND settlementLink.ap_ah <> currentLink.ap_ah
+    INNER JOIN AccTransactionHeader settlementHeader
+        ON settlementHeader.ah_pk = settlementLink.ap_ah
+       AND settlementHeader.ah_transactiontype IN ('REC', 'PAY')
+    INNER JOIN AccBankAccount b ON b.ab_pk = settlementHeader.ah_ab
+    WHERE {bankPkCondition}b.ab_code LIKE {bankLikeParam}
+       OR b.ab_bankname LIKE {bankLikeParam}
+       OR b.ab_accountnum LIKE {bankLikeParam}
+       OR b.ab_accountnumber LIKE {bankLikeParam}
+)";
+        }
+
         private static string TblBuildWhere(List<BillingTblFilterItem> filters, DynamicParameters dp)
         {
             var parts = new List<string>();
@@ -131,6 +163,8 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                 // 避免筛选字段未识别时被静默忽略。
                 ["ah_oh"] = "t.ah_oh",
                 ["creditor_debtor_full_name"] = "o.oh_fullname",
+                ["settle_company"] = "o.oh_fullname",
+                ["currency"] = "t.ah_rx_nktransactioncurrency",
                 ["job_number"] = "t.ah_jobnumber",
                 ["transaction_num"] = "t.ah_transactionnum",
                 ["ah_invoicedate"] = "t.ah_invoicedate",
@@ -247,6 +281,36 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                     continue;
                 }
 
+                if (string.Equals(item.key, "write_off_bank", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(item.val)) continue;
+                    var bankParam = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($" AND {BuildWriteOffBankFilter(bankParam, null)} ");
+                    dp.Add(bankParam, $"%{item.val.Trim()}%");
+                    continue;
+                }
+
+                if (string.Equals(item.key, "write_off_user", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(item.val)) continue;
+                    var userParam = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($@" AND (
+    t.ah_systemcreateuser LIKE {userParam}
+    OR t.ah_systemlastedituser LIKE {userParam}
+    OR EXISTS (
+        SELECT 1
+        FROM AccTransactionMatchLink filterLink
+        LEFT JOIN GlbStaff filterStaff ON filterStaff.GS_Code = filterLink.ap_systemcreateuser
+        WHERE filterLink.ap_ah = t.ah_pk
+          AND (filterLink.ap_systemcreateuser LIKE {userParam}
+               OR filterLink.ap_systemlastedituser LIKE {userParam}
+               OR filterStaff.GS_FullName LIKE {userParam})
+    )
+) ");
+                    dp.Add(userParam, $"%{item.val.Trim()}%");
+                    continue;
+                }
+
                 if (!fieldMap.TryGetValue(item.key, out var field))
                     continue;
 
@@ -256,7 +320,10 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
                         parts.Add($" AND {field} >= {paramNameStart} ");
-                        dp.Add(paramNameStart, item.start);
+                        dp.Add(paramNameStart,
+                            string.Equals(item.key, "ah_invoicedate", StringComparison.OrdinalIgnoreCase)
+                                ? DateTime.Parse(item.start)
+                                : item.start);
                     }
                     if (!string.IsNullOrWhiteSpace(item.end))
                     {
@@ -265,7 +332,10 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                             ? $"DATEADD(day, 1, {paramNameEnd})"
                             : paramNameEnd;
                         parts.Add($" AND {field} < {endExpression}");
-                        dp.Add(paramNameEnd, item.end);
+                        dp.Add(paramNameEnd,
+                            string.Equals(item.key, "ah_invoicedate", StringComparison.OrdinalIgnoreCase)
+                                ? DateTime.Parse(item.end)
+                                : item.end);
                     }
                 }
                 else
@@ -329,10 +399,11 @@ SELECT NEWID(), @counterAmount, 0, @matchGroup, 0, @matchDate, @counterPk, '', @
                 dp.Add("selectedPks", input.selectedPks);
             }
             if (!hasCancelledFilter)
-                whereIf += " AND ISNULL(t.ah_iscancelled, 0) = 0 ";
+                whereIf += " AND t.ah_iscancelled = 0 ";
 
             var sql = @$"
 SELECT
+    t.ah_pk,
     t.ah_invoicedate,
     t.ah_ledger,
     t.ah_transactiontype,
@@ -340,6 +411,8 @@ SELECT
     t.ah_chequeorreference,
     t.ah_jobnumber,
     t.ah_transactionnum,
+    t.ah_transactionnum AS TaxInvoiceNo,
+    CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
     t.ah_oh,
     t.ah_desc,
     t.ah_postdate,
@@ -355,9 +428,20 @@ SELECT
     t.ah_fullypaiddate,
     t.ah_iscancelled,
     o.oh_fullname,
+    o.oh_fullname AS SettleCompanyName,
+    CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+    writeOffUser.WriteOffUserName,
     {AccTransactionHeaderSql.DisplayColumns("t")}
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
+    FROM AccTransactionMatchLink matchLink
+    LEFT JOIN GlbStaff staff ON staff.GS_Code = matchLink.ap_systemcreateuser
+    WHERE matchLink.ap_ah = t.ah_pk
+    ORDER BY matchLink.ap_matchdate DESC, matchLink.ap_pk DESC
+) writeOffUser
 {AccTransactionHeaderSql.DisplayJoins("t")}
 WHERE t.ah_ledger = @ledger
     {whereIf}
@@ -379,12 +463,17 @@ OPTION (RECOMPILE)
                 new() { key = "tran_type", title = "Type" },
                 new() { key = "job_invoice_number", title = "Job Invoice No." },
                 new() { key = "transaction_num", title = "Transaction No." },
+                new() { key = "tax_invoice_no", title = "Tax Invoice No." },
+                new() { key = "tax_invoice_date", title = "Tax Invoice Date" },
                 new() { key = "creditor_debtor", title = "Settlement Party" },
                 new() { key = "creditor_debtor_full_name", title = "Settlement Party Full Name" },
+                new() { key = "settle_company_name", title = "Settle Company" },
                 new() { key = "invoice_description", title = "Invoice Description" },
                 new() { key = "post_date", title = "Post Date" },
                 new() { key = "due_date", title = "Due Date" },
                 new() { key = "currency", title = "Currency" },
+                new() { key = "write_off_bank_name", title = "Write-off Bank" },
+                new() { key = "write_off_user_name", title = "Write-off User" },
                 new() { key = "trans_amount", title = "Transaction Amount" },
                 new() { key = "exchange_rate", title = "Exchange Rate" },
                 new() { key = "local_amount", title = "Local Amount" },
@@ -404,12 +493,17 @@ OPTION (RECOMPILE)
                 ["tran_type"] = item => item.ah_transactiontype,
                 ["job_invoice_number"] = item => FirstNonBlank(item.ah_consolidatedinvoiceref, item.ah_chequeorreference, item.ah_jobnumber, item.ah_transactionnum),
                 ["transaction_num"] = item => item.ah_transactionnum,
+                ["tax_invoice_no"] = item => item.TaxInvoiceNo ?? item.ah_transactionnum,
+                ["tax_invoice_date"] = item => item.TaxInvoiceDate ?? item.ah_invoicedate.ToString("yyyy-MM-dd"),
                 ["creditor_debtor"] = item => item.ah_oh,
                 ["creditor_debtor_full_name"] = item => item.oh_fullname,
+                ["settle_company_name"] = item => item.SettleCompanyName ?? item.oh_fullname,
                 ["invoice_description"] = item => item.ah_desc,
                 ["post_date"] = item => item.ah_postdate,
                 ["due_date"] = item => item.ah_duedate,
                 ["currency"] = item => item.ah_rx_nktransactioncurrency,
+                ["write_off_bank_name"] = item => item.WriteOffBankName,
+                ["write_off_user_name"] = item => item.WriteOffUserName,
                 ["trans_amount"] = item => item.ah_ostotal,
                 ["exchange_rate"] = item => item.ah_exchangerate,
                 ["local_amount"] = item => item.ah_localtotal,
@@ -493,10 +587,10 @@ GROUP BY al_ah
             }
         }
 
-        private static string BuildMatchTransactionDateFilters(MatchTransactionPageInput input, DynamicParameters dp)
+        private static string BuildMatchTransactionDateFilters(MatchTransactionPageInput input, DynamicParameters dp, bool includeEtd = true)
         {
             var whereIf = string.Empty;
-            if (!string.IsNullOrWhiteSpace(input.EtdStart) || !string.IsNullOrWhiteSpace(input.EtdEnd))
+            if (includeEtd && (!string.IsNullOrWhiteSpace(input.EtdStart) || !string.IsNullOrWhiteSpace(input.EtdEnd)))
             {
                 whereIf += @"
     AND EXISTS (
@@ -529,8 +623,8 @@ GROUP BY al_ah
           )
     )
     ";
-                dp.Add("etdStart", string.IsNullOrWhiteSpace(input.EtdStart) ? null : input.EtdStart);
-                dp.Add("etdEnd", string.IsNullOrWhiteSpace(input.EtdEnd) ? null : input.EtdEnd);
+                dp.Add("etdStart", ParseFilterDate(input.EtdStart));
+                dp.Add("etdEnd", ParseFilterDate(input.EtdEnd));
             }
 
             if (!string.IsNullOrWhiteSpace(input.PaymentDateStart))
@@ -547,41 +641,37 @@ GROUP BY al_ah
             return whereIf;
         }
 
+        private static DateTime? ParseFilterDate(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : DateTime.Parse(value);
+        }
+
         private static string BuildMatchTransactionFilters(MatchTransactionPageInput input, DynamicParameters dp)
         {
             var whereIf = string.Empty;
             if (!string.IsNullOrWhiteSpace(input.SettleCompany))
             {
                 whereIf += @" AND EXISTS (
-                    SELECT 1
-                    FROM OrgHeader filterCompany
-                    WHERE filterCompany.oh_pk = t.ah_oh
-                      AND (filterCompany.oh_pk = TRY_CONVERT(uniqueidentifier, @settleCompany)
-                           OR filterCompany.oh_code LIKE @settleCompanyLike
-                           OR filterCompany.oh_fullname LIKE @settleCompanyLike)
-                ) ";
+    SELECT 1
+    FROM OrgHeader filterCompany
+    WHERE filterCompany.oh_pk = t.ah_oh
+      AND (filterCompany.oh_pk = TRY_CONVERT(uniqueidentifier, @settleCompany)
+           OR filterCompany.oh_code LIKE @settleCompanyLike
+           OR filterCompany.oh_fullname LIKE @settleCompanyLike)
+) ";
                 dp.Add("settleCompany", input.SettleCompany.Trim());
                 dp.Add("settleCompanyLike", $"%{input.SettleCompany.Trim()}%");
             }
 
             if (!string.IsNullOrWhiteSpace(input.Currency))
             {
-                whereIf += " AND t.ah_rx_nktransactioncurrency = @currency ";
-                dp.Add("currency", input.Currency.Trim());
+                whereIf += " AND t.ah_rx_nktransactioncurrency = @matchCurrency ";
+                dp.Add("matchCurrency", input.Currency.Trim());
             }
 
             if (!string.IsNullOrWhiteSpace(input.WriteOffBank))
             {
-                whereIf += @" AND EXISTS (
-                    SELECT 1
-                    FROM AccBankAccount filterBank
-                    WHERE filterBank.ab_pk = t.ah_ab
-                      AND (filterBank.ab_pk = TRY_CONVERT(uniqueidentifier, @writeOffBank)
-                           OR filterBank.ab_code LIKE @writeOffBankLike
-                           OR filterBank.ab_bankname LIKE @writeOffBankLike
-                           OR filterBank.ab_accountnum LIKE @writeOffBankLike
-                           OR filterBank.ab_accountnumber LIKE @writeOffBankLike)
-                ) ";
+                whereIf += $" AND {BuildWriteOffBankFilter("@writeOffBankLike", "@writeOffBank")} ";
                 dp.Add("writeOffBank", input.WriteOffBank.Trim());
                 dp.Add("writeOffBankLike", $"%{input.WriteOffBank.Trim()}%");
             }
@@ -589,16 +679,18 @@ GROUP BY al_ah
             if (!string.IsNullOrWhiteSpace(input.WriteOffUser))
             {
                 whereIf += @" AND (
-                    t.ah_systemcreateuser LIKE @writeOffUser
-                    OR t.ah_systemlastedituser LIKE @writeOffUser
-                    OR EXISTS (
-                        SELECT 1
-                        FROM AccTransactionMatchLink filterLink
-                        WHERE filterLink.ap_ah = t.ah_pk
-                          AND (filterLink.ap_systemcreateuser LIKE @writeOffUser
-                               OR filterLink.ap_systemlastedituser LIKE @writeOffUser)
-                    )
-                ) ";
+    t.ah_systemcreateuser LIKE @writeOffUser
+    OR t.ah_systemlastedituser LIKE @writeOffUser
+    OR EXISTS (
+        SELECT 1
+        FROM AccTransactionMatchLink filterLink
+        LEFT JOIN GlbStaff filterStaff ON filterStaff.GS_Code = filterLink.ap_systemcreateuser
+        WHERE filterLink.ap_ah = t.ah_pk
+          AND (filterLink.ap_systemcreateuser LIKE @writeOffUser
+               OR filterLink.ap_systemlastedituser LIKE @writeOffUser
+               OR filterStaff.GS_FullName LIKE @writeOffUser)
+    )
+) ";
                 dp.Add("writeOffUser", $"%{input.WriteOffUser.Trim()}%");
             }
 
@@ -632,30 +724,47 @@ GROUP BY al_ah
             }
             var hasCancelledFilter = filters.Any(item =>
                 string.Equals(item.key, "ah_iscancelled", StringComparison.OrdinalIgnoreCase));
+            var needsCompanyJoin = filters.Any(item =>
+                string.Equals(item.key, "creditor_debtor", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.key, "creditor_debtor_full_name", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(item.key, "settle_company", StringComparison.OrdinalIgnoreCase));
             var whereIf = TblBuildWhere(filters, dp);
             // 默认只显示有效交易；只有用户明确填写“已取消”筛选时才放开作废记录。
             if (!hasCancelledFilter)
             {
-                whereIf += " AND ISNULL(t.ah_iscancelled, 0) = 0 ";
+                whereIf += " AND t.ah_iscancelled = 0 ";
             }
 
             var totalSql = @$"
 SELECT COUNT(*)
 FROM AccTransactionHeader t
-LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+{(needsCompanyJoin ? "LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh" : string.Empty)}
 WHERE 1 = 1
-    AND t.ah_ledger = @ledger
+    AND t.ah_ledger = CONVERT(char(2), @ledger)
     {whereIf}
 OPTION (RECOMPILE)
 ";
             var pageSql = @$"
 SELECT t.*, o.oh_fullname,
+       t.ah_transactionnum AS TaxInvoiceNo,
+       CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
+       o.oh_fullname AS SettleCompanyName,
+       CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+       writeOffUser.WriteOffUserName,
 {AccTransactionHeaderSql.DisplayColumns("t")}
-FROM AccTransactionHeader t
+FROM AccTransactionHeader t WITH (INDEX(IX_AccTransactionHeader_LedgerCancelledDate))
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
+LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
+    FROM AccTransactionMatchLink matchLink
+    LEFT JOIN GlbStaff staff ON staff.GS_Code = matchLink.ap_systemcreateuser
+    WHERE matchLink.ap_ah = t.ah_pk
+    ORDER BY matchLink.ap_matchdate DESC, matchLink.ap_pk DESC
+) writeOffUser
 {AccTransactionHeaderSql.DisplayJoins("t")}
 WHERE 1 = 1
-    AND t.ah_ledger = @ledger
+    AND t.ah_ledger = CONVERT(char(2), @ledger)
     {whereIf}
 ORDER BY t.ah_invoicedate desc, t.ah_pk desc
 OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
@@ -1235,15 +1344,7 @@ WHERE ah_pk = @pk
         {
             var output = new MatchTransactionPageOutput();
             var dp = new DynamicParameters();
-            var jobMatchSetup = "";
-            var jobMatchJoin = "";
-            // 结算匹配列表只展示已经产生核销关联的交易，避免未结算发票直接出现在列表中。
-            var whereIf = @"
-                AND EXISTS (
-                    SELECT 1
-                    FROM AccTransactionMatchLink m
-                    WHERE m.ap_ah = t.ah_pk
-                ) ";
+            var whereIf = string.Empty;
 
             if (!string.IsNullOrWhiteSpace(input.Shipper))
             {
@@ -1253,29 +1354,22 @@ WHERE ah_pk = @pk
 
             if (!string.IsNullOrWhiteSpace(input.JobNumber))
             {
-                // 保留原有三种命中路径，但先汇总交易主键，避免对每条交易重复执行相关子查询。
-                jobMatchSetup = @"
-;WITH JobScope AS (
-    SELECT jh_pk
-    FROM JobHeader
-    WHERE jh_jobnum LIKE @jobNumber
-), MatchedHeaders AS (
-    SELECT t.ah_pk
-    FROM AccTransactionHeader t
-    INNER JOIN JobScope js ON js.jh_pk = t.ah_jh
-    UNION
-    SELECT l.al_ah
-    FROM AccTransactionLines l
-    INNER JOIN JobScope js ON js.jh_pk = l.al_jh
-    UNION
-    SELECT t.ah_pk
-    FROM AccTransactionHeader t
-    WHERE t.ah_jobnumber LIKE @jobNumber
-)
-SELECT DISTINCT ah_pk INTO #MatchedJobHeaders
-FROM MatchedHeaders;
-";
-                jobMatchJoin = " INNER JOIN #MatchedJobHeaders jobMatch ON jobMatch.ah_pk = t.ah_pk ";
+                whereIf += @" AND (
+    EXISTS (
+        SELECT 1
+        FROM JobHeader jh
+        WHERE jh.jh_pk = t.ah_jh
+          AND jh.jh_jobnum LIKE @jobNumber
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM AccTransactionLines l
+        INNER JOIN JobHeader jh ON jh.jh_pk = l.al_jh
+        WHERE l.al_ah = t.ah_pk
+          AND jh.jh_jobnum LIKE @jobNumber
+    )
+    OR t.ah_jobnumber LIKE @jobNumber
+) ";
                 dp.Add("jobNumber", $"%{input.JobNumber}%");
             }
 
@@ -1296,11 +1390,9 @@ FROM MatchedHeaders;
 
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
-
             var totalSql = @$"
 SELECT COUNT(*)
 FROM AccTransactionHeader t
-{jobMatchJoin}
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
     {whereIf}
@@ -1316,21 +1408,21 @@ SELECT
     t.ah_transactionnum AS TaxInvoiceNo,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
     o.oh_fullname AS SettleCompanyName,
-    bank.ab_bankname AS WriteOffBankName,
-    COALESCE(NULLIF(t.ah_systemlastedituser, ''), NULLIF(t.ah_systemcreateuser, ''), writeOffUser.ap_systemcreateuser) AS WriteOffUserName,
+    CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+    writeOffUser.WriteOffUserName,
     t.ah_rx_nktransactioncurrency AS Currency,
     t.ah_ostotal AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
     t.ah_desc AS Description
-FROM AccTransactionHeader t
-{jobMatchJoin}
+FROM AccTransactionHeader t WITH (INDEX(IX_AccTransactionHeader_MatchPage))
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
 OUTER APPLY (
-    SELECT TOP 1 ap_systemcreateuser
-    FROM AccTransactionMatchLink
-    WHERE ap_ah = t.ah_pk
-    ORDER BY ap_systemcreatetimeutc DESC, ap_pk DESC
+    SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
+    FROM AccTransactionMatchLink matchLink
+    LEFT JOIN GlbStaff staff ON staff.GS_Code = matchLink.ap_systemcreateuser
+    WHERE matchLink.ap_ah = t.ah_pk
+    ORDER BY matchLink.ap_matchdate DESC, matchLink.ap_pk DESC
 ) writeOffUser
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
@@ -1340,7 +1432,6 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 ";
 
             using (var multi = await _appSqlServerRepository.QueryMultipleAsync($@"
-{jobMatchSetup}
 {totalSql};
 {pageSql}
 ", dp))
@@ -1356,14 +1447,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
         {
             input ??= new MatchTransactionPageInput();
             var dp = new DynamicParameters();
-            var jobMatchSetup = "";
-            var jobMatchJoin = "";
-            var whereIf = @"
-                AND EXISTS (
-                    SELECT 1
-                    FROM AccTransactionMatchLink m
-                    WHERE m.ap_ah = t.ah_pk
-                ) ";
+            var whereIf = string.Empty;
 
             if (!string.IsNullOrWhiteSpace(input.Shipper))
             {
@@ -1373,28 +1457,22 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
 
             if (!string.IsNullOrWhiteSpace(input.JobNumber))
             {
-                jobMatchSetup = @"
-;WITH JobScope AS (
-    SELECT jh_pk
-    FROM JobHeader
-    WHERE jh_jobnum LIKE @jobNumber
-), MatchedHeaders AS (
-    SELECT t.ah_pk
-    FROM AccTransactionHeader t
-    INNER JOIN JobScope js ON js.jh_pk = t.ah_jh
-    UNION
-    SELECT l.al_ah
-    FROM AccTransactionLines l
-    INNER JOIN JobScope js ON js.jh_pk = l.al_jh
-    UNION
-    SELECT t.ah_pk
-    FROM AccTransactionHeader t
-    WHERE t.ah_jobnumber LIKE @jobNumber
-)
-SELECT DISTINCT ah_pk INTO #MatchedJobHeaders
-FROM MatchedHeaders;
-";
-                jobMatchJoin = " INNER JOIN #MatchedJobHeaders jobMatch ON jobMatch.ah_pk = t.ah_pk ";
+                whereIf += @" AND (
+    EXISTS (
+        SELECT 1
+        FROM JobHeader jh
+        WHERE jh.jh_pk = t.ah_jh
+          AND jh.jh_jobnum LIKE @jobNumber
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM AccTransactionLines l
+        INNER JOIN JobHeader jh ON jh.jh_pk = l.al_jh
+        WHERE l.al_ah = t.ah_pk
+          AND jh.jh_jobnum LIKE @jobNumber
+    )
+    OR t.ah_jobnumber LIKE @jobNumber
+) ";
                 dp.Add("jobNumber", $"%{input.JobNumber}%");
             }
 
@@ -1418,8 +1496,7 @@ FROM MatchedHeaders;
                 dp.Add("selectedPks", input.SelectedPks);
             }
 
-            var sql = @$"
-{jobMatchSetup}
+            var sql = @"
 SELECT
     t.ah_pk AS Pk,
     t.ah_ledger AS Ledger,
@@ -1430,21 +1507,21 @@ SELECT
     t.ah_transactionnum AS TaxInvoiceNo,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
     o.oh_fullname AS SettleCompanyName,
-    bank.ab_bankname AS WriteOffBankName,
-    COALESCE(NULLIF(t.ah_systemlastedituser, ''), NULLIF(t.ah_systemcreateuser, ''), writeOffUser.ap_systemcreateuser) AS WriteOffUserName,
+    CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+    writeOffUser.WriteOffUserName,
     t.ah_rx_nktransactioncurrency AS Currency,
     t.ah_ostotal AS SettledAmount,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS PaymentDate,
     t.ah_desc AS Description
 FROM AccTransactionHeader t
-{jobMatchJoin}
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
 OUTER APPLY (
-    SELECT TOP 1 ap_systemcreateuser
-    FROM AccTransactionMatchLink
-    WHERE ap_ah = t.ah_pk
-    ORDER BY ap_systemcreatetimeutc DESC, ap_pk DESC
+    SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
+    FROM AccTransactionMatchLink matchLink
+    LEFT JOIN GlbStaff staff ON staff.GS_Code = matchLink.ap_systemcreateuser
+    WHERE matchLink.ap_ah = t.ah_pk
+    ORDER BY matchLink.ap_matchdate DESC, matchLink.ap_pk DESC
 ) writeOffUser
 WHERE t.ah_iscancelled = 0
     AND t.ah_transactiontype IN ('REC', 'PAY', 'INV')
@@ -1461,7 +1538,7 @@ OPTION (RECOMPILE)
                 new() { key = "taxInvoiceNo", title = "Tax Invoice No." },
                 new() { key = "taxInvoiceDate", title = "Tax Invoice Date" },
                 new() { key = "billingParty", title = "Company" },
-                new() { key = "settleCompanyName", title = "Settlement Company" },
+                new() { key = "settleCompanyName", title = "Settle Company" },
                 new() { key = "writeOffBankName", title = "Write-off Bank" },
                 new() { key = "writeOffUserName", title = "Write-off User" },
                 new() { key = "currency", title = "Currency" },

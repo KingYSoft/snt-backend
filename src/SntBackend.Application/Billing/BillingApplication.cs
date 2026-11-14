@@ -429,12 +429,28 @@ SELECT
     t.ah_iscancelled,
     o.oh_fullname,
     o.oh_fullname AS SettleCompanyName,
-    CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+    CASE
+        WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname
+        WHEN t.ah_transactiontype = 'INV' THEN matchedWriteOffBank.WriteOffBankName
+    END AS WriteOffBankName,
     writeOffUser.WriteOffUserName,
     {AccTransactionHeaderSql.DisplayColumns("t")}
 FROM AccTransactionHeader t
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 settlementBank.ab_bankname AS WriteOffBankName
+    FROM AccTransactionMatchLink currentLink
+    INNER JOIN AccTransactionMatchLink settlementLink
+        ON settlementLink.ap_matchgroupnum = currentLink.ap_matchgroupnum
+       AND settlementLink.ap_ah <> currentLink.ap_ah
+    INNER JOIN AccTransactionHeader settlementHeader
+        ON settlementHeader.ah_pk = settlementLink.ap_ah
+       AND settlementHeader.ah_transactiontype IN ('REC', 'PAY')
+    LEFT JOIN AccBankAccount settlementBank ON settlementBank.ab_pk = settlementHeader.ah_ab
+    WHERE currentLink.ap_ah = t.ah_pk
+    ORDER BY settlementLink.ap_matchdate DESC, settlementLink.ap_pk DESC
+) matchedWriteOffBank
 OUTER APPLY (
     SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
     FROM AccTransactionMatchLink matchLink
@@ -563,17 +579,26 @@ WITH LineJobs AS
       AND NULLIF(LTRIM(RTRIM(jh.jh_jobnum)), '') IS NOT NULL
 )
 SELECT al_ah AS AhPk,
-       STRING_AGG(jh_jobnum, ',') AS JobNumber
+       STRING_AGG(CONVERT(nvarchar(max), jh_jobnum), ',') AS JobNumber
 FROM LineJobs
 GROUP BY al_ah
 ";
 
-            var rows = await _appSqlServerRepository.QueryAsync<(string AhPk, string JobNumber)>(
-                sql,
-                new { ahPks = missingPks });
-            var jobMap = rows
-                .Where(row => !string.IsNullOrWhiteSpace(row.AhPk) && !string.IsNullOrWhiteSpace(row.JobNumber))
-                .ToDictionary(row => row.AhPk, row => row.JobNumber);
+            var jobMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var batch in missingPks.Chunk(2000))
+            {
+                var rows = await _appSqlServerRepository.QueryAsync<(string AhPk, string JobNumber)>(
+                    sql,
+                    new { ahPks = batch });
+                foreach (var row in rows)
+                {
+                    if (!string.IsNullOrWhiteSpace(row.AhPk)
+                        && !string.IsNullOrWhiteSpace(row.JobNumber))
+                    {
+                        jobMap[row.AhPk] = row.JobNumber;
+                    }
+                }
+            }
 
             foreach (var item in items)
             {
@@ -1408,7 +1433,10 @@ SELECT
     t.ah_transactionnum AS TaxInvoiceNo,
     CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
     o.oh_fullname AS SettleCompanyName,
-    CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+    CASE
+        WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname
+        WHEN t.ah_transactiontype = 'INV' THEN matchedWriteOffBank.WriteOffBankName
+    END AS WriteOffBankName,
     writeOffUser.WriteOffUserName,
     t.ah_rx_nktransactioncurrency AS Currency,
     t.ah_ostotal AS SettledAmount,
@@ -1417,6 +1445,19 @@ SELECT
 FROM AccTransactionHeader t WITH (INDEX(IX_AccTransactionHeader_MatchPage))
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 settlementBank.ab_bankname AS WriteOffBankName
+    FROM AccTransactionMatchLink currentLink
+    INNER JOIN AccTransactionMatchLink settlementLink
+        ON settlementLink.ap_matchgroupnum = currentLink.ap_matchgroupnum
+       AND settlementLink.ap_ah <> currentLink.ap_ah
+    INNER JOIN AccTransactionHeader settlementHeader
+        ON settlementHeader.ah_pk = settlementLink.ap_ah
+       AND settlementHeader.ah_transactiontype IN ('REC', 'PAY')
+    LEFT JOIN AccBankAccount settlementBank ON settlementBank.ab_pk = settlementHeader.ah_ab
+    WHERE currentLink.ap_ah = t.ah_pk
+    ORDER BY settlementLink.ap_matchdate DESC, settlementLink.ap_pk DESC
+) matchedWriteOffBank
 OUTER APPLY (
     SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
     FROM AccTransactionMatchLink matchLink
@@ -1496,7 +1537,7 @@ OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
                 dp.Add("selectedPks", input.SelectedPks);
             }
 
-            var sql = @"
+            var sql = $@"
 SELECT
     t.ah_pk AS Pk,
     t.ah_ledger AS Ledger,

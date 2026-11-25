@@ -77,13 +77,15 @@ GROUP BY l.jn_jk", new { jkPks = pending });
             {
                 return op switch
                 {
-                    "=" => "=",
+                    "=" or "Equal" => "=",
+                    "!=" or "<>" or "NotEqual" => "<>",
                     ">" => ">",
                     "<" => "<",
                     ">=" => ">=",
                     "<=" => "<=",
                     "Contain" => "LIKE",
-                    "Not Contain" => "NOT LIKE",
+                    "Not Contain" or "NotContain" => "NOT LIKE",
+                    "StartWith" or "EndWith" => "LIKE",
                     _ => "="
                 };
             }
@@ -95,10 +97,100 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                     continue;
                 }
 
-                if (IsShipmentField(item.key))
+                var key = item.key;
+                var value = item.val?.Trim() ?? string.Empty;
+                if (item.op != "between" && value.Length == 0)
+                {
+                    continue;
+                }
+
+                var isLike = item.op is "Contain" or "Not Contain" or "NotContain" or "StartWith" or "EndWith";
+                var parameterValue = item.op switch
+                {
+                    "StartWith" => $"{value}%",
+                    "EndWith" => $"%{value}",
+                    _ when isLike => $"%{value}%",
+                    _ => value
+                };
+
+                if (key is "company" or "company_pk" or "jh_gc")
+                {
+                    var paramName = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
+        AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
+    WHERE link.jn_jk = t.jk_pk
+      AND (CONVERT(VARCHAR(50), jh.jh_gc) {MapOp(item.op)} {paramName}
+           OR gc.GC_Code {MapOp(item.op)} {paramName}
+           OR gc.GC_Name {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "sales" or "sales_rep" or "jh_gs_nkrepsales")
+                {
+                    var paramName = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
+        AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepsales
+    WHERE link.jn_jk = t.jk_pk
+      AND (jh.jh_gs_nkrepsales {MapOp(item.op)} {paramName}
+           OR gs.GS_Code {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "operation" or "operator" or "jh_gs_nkrepops")
+                {
+                    var paramName = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
+        AND jh.jh_parenttablecode = 'JS'
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepops
+    WHERE link.jn_jk = t.jk_pk
+      AND (jh.jh_gs_nkrepops {MapOp(item.op)} {paramName}
+           OR gs.GS_Code {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (key is "customer_service" or "customerService" or "shp_job_rep_cs_name")
+                {
+                    var paramName = $"@p{dp.ParameterNames.Count()}";
+                    parts.Add($@" AND EXISTS (
+    SELECT 1
+    FROM JobConShipLink link
+    INNER JOIN GenCustomAddOnValue v ON v.XV_ParentID = link.jn_js
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE link.jn_jk = t.jk_pk
+      AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
+      AND (v.XV_Data {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
+) ");
+                    dp.Add(paramName, parameterValue);
+                    continue;
+                }
+
+                if (IsShipmentField(key))
                     joinShipment = true;
 
-                var col = GetColumnExpr(item.key);
+                var col = GetColumnExpr(key);
 
                 if (item.op == "between")
                 {
@@ -121,11 +213,9 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                     {
                         continue;
                     }
-                    var val = item.val.Trim();
                     var paramName = $"@p{dp.ParameterNames.Count()}";
-                    var isContain = item.op == "Contain" || item.op == "Not Contain";
                     parts.Add($" AND {col} {MapOp(item.op)} {paramName}");
-                    dp.Add(paramName, isContain ? $"%{val}%" : val);
+                    dp.Add(paramName, parameterValue);
                 }
             }
 

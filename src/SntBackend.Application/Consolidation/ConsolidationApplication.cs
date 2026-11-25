@@ -68,9 +68,14 @@ GROUP BY l.jn_jk", new { jkPks = pending });
             public decimal chargeable { get; set; }
         }
 
-        private static string TblBuildWhere(List<ConsolidationTblFilterItem> filters, DynamicParameters dp, out bool joinShipment)
+        private static string TblBuildWhere(
+            List<ConsolidationTblFilterItem> filters,
+            DynamicParameters dp,
+            out bool joinShipment,
+            bool useShipmentExists = false)
         {
             var parts = new List<string>();
+            var shipmentParts = new List<string>();
             joinShipment = false;
 
             static string MapOp(string op)
@@ -169,23 +174,25 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                     continue;
                 }
 
-                if (IsShipmentField(key))
+                var isShipmentField = IsShipmentField(key);
+                if (isShipmentField && !useShipmentExists)
                     joinShipment = true;
 
-                var col = GetColumnExpr(key);
+                var col = isShipmentField ? $"s.{key}" : GetColumnExpr(key);
+                var targetParts = isShipmentField && useShipmentExists ? shipmentParts : parts;
 
                 if (item.op == "between")
                 {
                     if (!string.IsNullOrWhiteSpace(item.start))
                     {
                         var paramNameStart = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND {col} >= {paramNameStart} ");
+                        targetParts.Add($" AND {col} >= {paramNameStart} ");
                         dp.Add(paramNameStart, item.start);
                     }
                     if (!string.IsNullOrWhiteSpace(item.end))
                     {
                         var paramNameEnd = $"@p{dp.ParameterNames.Count()}";
-                        parts.Add($" AND {col} <= {paramNameEnd}");
+                        targetParts.Add($" AND {col} <= {paramNameEnd}");
                         dp.Add(paramNameEnd, item.end);
                     }
                 }
@@ -195,9 +202,21 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                     {
                         continue;
                     }
-                    parts.Add($" AND {col} {MapOp(item.op)} {paramName}");
+                    targetParts.Add($" AND {col} {MapOp(item.op)} {paramName}");
                     dp.Add(paramName, parameterValue);
                 }
+            }
+
+            if (useShipmentExists && shipmentParts.Count > 0)
+            {
+                parts.Add($@" AND EXISTS
+(
+    SELECT 1
+    FROM JobConShipLink l
+    INNER JOIN JobShipment s ON s.js_pk = l.jn_js
+    WHERE l.jn_jk = t.jk_pk
+      {string.Join(" ", shipmentParts)}
+)");
             }
 
             return string.Join(" ", parts);
@@ -207,23 +226,26 @@ GROUP BY l.jn_jk", new { jkPks = pending });
         {
             var output = new ConsolidationTblOutput();
             var dp = new DynamicParameters();
-            var whereIf = TblBuildWhere(input.filters, dp, out var joinShipment);
-
-            var shipmentJoin = joinShipment
-                ? "LEFT JOIN JobConShipLink l ON l.jn_jk = t.jk_pk LEFT JOIN JobShipment s ON s.js_pk = l.jn_js"
-                : "";
-            var distinct = joinShipment ? "DISTINCT" : "";
+            var whereIf = TblBuildWhere(input.filters, dp, out _, useShipmentExists: true);
 
             var totalSql = @$"
-SELECT COUNT({distinct} t.jk_pk)
+SELECT COUNT(t.jk_pk)
 FROM JobConsol t
-{shipmentJoin}
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
     {whereIf}
 ";
             var pageSql = @$"
-SELECT {distinct} t.*,
+WITH PageKeys AS
+(
+    SELECT t.jk_pk
+    FROM JobConsol t
+    WHERE t.jk_iscancelled = 0
+        {whereIf}
+    ORDER BY t.jk_pk DESC
+    OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+)
+SELECT t.*,
     transport.con_etd,
     transport.con_eta,
     transport.con_vessel,
@@ -240,7 +262,7 @@ SELECT {distinct} t.*,
     customerService.customer_service,
     customerService.customer_service_name
 FROM JobConsol t
-{shipmentJoin}
+INNER JOIN PageKeys pageKeys ON pageKeys.jk_pk = t.jk_pk
 OUTER APPLY (
     SELECT TOP 1
         ct.jw_etd AS con_etd,
@@ -283,7 +305,7 @@ OUTER APPLY (
         operationStaff.GS_FullName AS operation_name
     FROM JobConShipLink link
     INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
-    INNER JOIN JobHeader jh ON CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), shipment.js_pk)
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
         AND jh.jh_parenttablecode = 'JS'
     LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
     LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales
@@ -306,9 +328,7 @@ OUTER APPLY (
 ) customerService
 WHERE 1 = 1
     AND t.jk_iscancelled = 0
-    {whereIf}
-ORDER BY t.jk_pk desc
-OFFSET @skipCount ROWS FETCH NEXT @takeCount ROWS ONLY
+ORDER BY t.jk_pk DESC
 ";
             dp.Add("skipCount", input.SkipCount);
             dp.Add("takeCount", input.MaxResultCount);
@@ -392,7 +412,7 @@ WITH FilteredConsols AS (
         ROW_NUMBER() OVER (PARTITION BY link.jn_jk ORDER BY jh.jh_pk) AS row_number
     FROM JobConShipLink link
     INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
-    INNER JOIN JobHeader jh ON CONVERT(VARCHAR(50), jh.jh_parentid) = CONVERT(VARCHAR(50), shipment.js_pk)
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
         AND jh.jh_parenttablecode = 'JS'
     LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
     LEFT JOIN GlbStaff salesStaff ON salesStaff.GS_Code = jh.jh_gs_nkrepsales

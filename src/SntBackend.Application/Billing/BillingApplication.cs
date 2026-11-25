@@ -774,12 +774,28 @@ SELECT t.*, o.oh_fullname,
        t.ah_transactionnum AS TaxInvoiceNo,
        CONVERT(varchar(10), t.ah_invoicedate, 23) AS TaxInvoiceDate,
        o.oh_fullname AS SettleCompanyName,
-       CASE WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname END AS WriteOffBankName,
+       CASE
+           WHEN t.ah_transactiontype IN ('REC', 'PAY') THEN bank.ab_bankname
+           WHEN t.ah_transactiontype = 'INV' THEN matchedWriteOffBank.WriteOffBankName
+       END AS WriteOffBankName,
        writeOffUser.WriteOffUserName,
 {AccTransactionHeaderSql.DisplayColumns("t")}
 FROM AccTransactionHeader t WITH (INDEX(IX_AccTransactionHeader_LedgerCancelledDate))
 LEFT JOIN OrgHeader o ON o.OH_PK = t.ah_oh
 LEFT JOIN AccBankAccount bank ON bank.ab_pk = t.ah_ab
+OUTER APPLY (
+    SELECT TOP 1 settlementBank.ab_bankname AS WriteOffBankName
+    FROM AccTransactionMatchLink currentLink
+    INNER JOIN AccTransactionMatchLink settlementLink
+        ON settlementLink.ap_matchgroupnum = currentLink.ap_matchgroupnum
+       AND settlementLink.ap_ah <> currentLink.ap_ah
+    INNER JOIN AccTransactionHeader settlementHeader
+        ON settlementHeader.ah_pk = settlementLink.ap_ah
+       AND settlementHeader.ah_transactiontype IN ('REC', 'PAY')
+    LEFT JOIN AccBankAccount settlementBank ON settlementBank.ab_pk = settlementHeader.ah_ab
+    WHERE currentLink.ap_ah = t.ah_pk
+    ORDER BY settlementLink.ap_matchdate DESC, settlementLink.ap_pk DESC
+) matchedWriteOffBank
 OUTER APPLY (
     SELECT TOP 1 staff.GS_FullName AS WriteOffUserName
     FROM AccTransactionMatchLink matchLink

@@ -50,7 +50,8 @@ namespace SntBackend.Web.Core
             Configuration.BackgroundJobs.IsJobExecutionEnabled = true;
             Configuration.MultiTenancy.IsEnabled = SntBackendConsts.MultiTenancyEnabled;
             Configuration.DefaultNameOrConnectionString = _appConfiguration.GetConnectionString(SntBackendConsts.ConnectionStringName);
-            Configuration.UnitOfWork.Timeout = new TimeSpan(0, 0, 30);
+            Configuration.UnitOfWork.Timeout = new TimeSpan(0, 0, 100);
+            Dapper.SqlMapper.Settings.CommandTimeout = 100;
 
             Configuration.Localization.Languages.Clear();
             Configuration.Localization.Languages.Add(new LanguageInfo("en", "English", isDefault: true));

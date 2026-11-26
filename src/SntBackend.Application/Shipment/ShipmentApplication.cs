@@ -76,7 +76,7 @@ namespace SntBackend.Application.Shipment
     LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
     WHERE jh.jh_parentid = t.js_pk
       AND jh.jh_parenttablecode = 'JS'
-      AND (jh.jh_gc {MapOp(item.op)} {paramName}
+      AND (CONVERT(VARCHAR(50), jh.jh_gc) {MapOp(item.op)} {paramName}
            OR gc.GC_Code {MapOp(item.op)} {paramName}
            OR gc.GC_Name {MapOp(item.op)} {paramName})
 ) ");
@@ -121,9 +121,11 @@ namespace SntBackend.Application.Shipment
                     parts.Add($@" AND EXISTS (
     SELECT 1
     FROM GenCustomAddOnValue v
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
     WHERE v.Xv_ParentID = t.js_pk
       AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
-      AND v.XV_Data {MapOp(item.op)} {paramName}
+      AND (v.XV_Data {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
 ) ");
                     dp.Add(paramName, parameterValue);
                     continue;

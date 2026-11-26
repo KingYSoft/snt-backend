@@ -117,11 +117,13 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                 {
                     parts.Add($@" AND EXISTS (
     SELECT 1
-    FROM JobHeader jh
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
+        AND jh.jh_parenttablecode = 'JS'
     LEFT JOIN GlbCompany gc ON gc.GC_PK = jh.jh_gc
-    WHERE jh.jh_parentid = t.jk_pk
-      AND jh.jh_parenttablecode = 'JK'
-      AND (jh.jh_gc {MapOp(item.op)} {paramName}
+    WHERE link.jn_jk = t.jk_pk
+      AND (CONVERT(VARCHAR(50), jh.jh_gc) {MapOp(item.op)} {paramName}
            OR gc.GC_Code {MapOp(item.op)} {paramName}
            OR gc.GC_Name {MapOp(item.op)} {paramName})
 ) ");
@@ -133,10 +135,12 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                 {
                     parts.Add($@" AND EXISTS (
     SELECT 1
-    FROM JobHeader jh
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
+        AND jh.jh_parenttablecode = 'JS'
     LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepsales
-    WHERE jh.jh_parentid = t.jk_pk
-      AND jh.jh_parenttablecode = 'JK'
+    WHERE link.jn_jk = t.jk_pk
       AND (jh.jh_gs_nkrepsales {MapOp(item.op)} {paramName}
            OR gs.GS_Code {MapOp(item.op)} {paramName}
            OR gs.GS_FullName {MapOp(item.op)} {paramName})
@@ -149,10 +153,12 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                 {
                     parts.Add($@" AND EXISTS (
     SELECT 1
-    FROM JobHeader jh
+    FROM JobConShipLink link
+    INNER JOIN JobShipment shipment ON shipment.js_pk = link.jn_js
+    INNER JOIN JobHeader jh ON jh.jh_parentid = shipment.js_pk
+        AND jh.jh_parenttablecode = 'JS'
     LEFT JOIN GlbStaff gs ON gs.GS_Code = jh.jh_gs_nkrepops
-    WHERE jh.jh_parentid = t.jk_pk
-      AND jh.jh_parenttablecode = 'JK'
+    WHERE link.jn_jk = t.jk_pk
       AND (jh.jh_gs_nkrepops {MapOp(item.op)} {paramName}
            OR gs.GS_Code {MapOp(item.op)} {paramName}
            OR gs.GS_FullName {MapOp(item.op)} {paramName})
@@ -165,10 +171,13 @@ GROUP BY l.jn_jk", new { jkPks = pending });
                 {
                     parts.Add($@" AND EXISTS (
     SELECT 1
-    FROM GenCustomAddOnValue v
-    WHERE v.Xv_ParentID = t.jk_pk
+    FROM JobConShipLink link
+    INNER JOIN GenCustomAddOnValue v ON v.XV_ParentID = link.jn_js
+    LEFT JOIN GlbStaff gs ON gs.GS_Code = v.XV_Data
+    WHERE link.jn_jk = t.jk_pk
       AND v.XV_Name IN ('Customer Service', 'Coustomer Service')
-      AND v.XV_Data {MapOp(item.op)} {paramName}
+      AND (v.XV_Data {MapOp(item.op)} {paramName}
+           OR gs.GS_FullName {MapOp(item.op)} {paramName})
 ) ");
                     dp.Add(paramName, parameterValue);
                     continue;
